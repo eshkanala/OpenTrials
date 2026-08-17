@@ -9,7 +9,10 @@ import pyarrow.parquet as pq
 import pytest
 
 from opentrials.adapters.osp import ACICLOVIR_IV_MODEL_SHA256
-from opentrials.orchestration import run_aciclovir_iv_dose_uncertainty
+from opentrials.orchestration import (
+    run_aciclovir_iv_dose_uncertainty,
+    run_aciclovir_iv_multi_dose_sensitivity_demo,
+)
 from opentrials.orchestration.uncertainty_dose import PKML_PATH
 from opentrials.storage import UncertaintyDrawArtifactStore
 from opentrials.uncertainty.contracts import SamplingMethod
@@ -78,3 +81,27 @@ def test_persisted_125_and_250_mg_draws_produce_distinct_artifacts(tmp_path: Pat
         rows[1]["tmax"],
         rows[1]["auc_0_last"],
     )
+
+
+def test_declared_multi_dose_demo_executes_otus_to_otsens(tmp_path: Path) -> None:
+    if os.environ.get("OPENTRIALS_RUN_OSP_INTEGRATION") != "1":
+        pytest.skip("Set OPENTRIALS_RUN_OSP_INTEGRATION=1 to run against local OSP.")
+    r_libs_user = os.environ.get("OPENTRIALS_OSP_R_LIBS_USER")
+    if r_libs_user is None:
+        pytest.skip("Set OPENTRIALS_OSP_R_LIBS_USER to the ospsuite R library path.")
+    if not PKML_PATH.is_file():
+        pytest.skip(f"Bundled OSP aciclovir PKML is not available: {PKML_PATH}")
+
+    demo = run_aciclovir_iv_multi_dose_sensitivity_demo(
+        output_root=tmp_path / "multi-dose-demo", r_libs_user=r_libs_user
+    )
+
+    rows = pq.read_table(
+        demo.sensitivity.sensitivity_directory / "sensitivities.parquet"
+    ).to_pylist()
+    assert demo.execution.manifest.executions.rows == 8
+    assert {(row["output_id"], row["rank"]) for row in rows} == {
+        ("cmax", 1),
+        ("auc_0_last", 1),
+    }
+    assert demo.sensitivity.manifest.source_execution_id == demo.execution.execution_id

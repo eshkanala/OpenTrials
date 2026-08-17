@@ -50,6 +50,14 @@ from opentrials.storage.uncertainty_executions import (
     UncertaintyExecutionTableArtifact,
     semantic_uncertainty_execution_hash,
 )
+from opentrials.storage.uncertainty_sensitivity import (
+    ENGINEERING_DEMONSTRATION_INTERPRETATION,
+    UNCERTAINTY_SENSITIVITY_COLUMNS,
+    UncertaintySensitivityArtifactManifest,
+    UncertaintySensitivityArtifactStore,
+    UncertaintySensitivityTableArtifact,
+    semantic_uncertainty_sensitivity_hash,
+)
 from opentrials.storage.validation import (
     ValidationArtifactManifest,
     ValidationArtifactStore,
@@ -85,6 +93,11 @@ __all__ = [
     "UncertaintyExecutionArtifactStore",
     "UncertaintyExecutionTableArtifact",
     "UNCERTAINTY_EXECUTION_COLUMNS",
+    "UNCERTAINTY_SENSITIVITY_COLUMNS",
+    "ENGINEERING_DEMONSTRATION_INTERPRETATION",
+    "UncertaintySensitivityArtifactManifest",
+    "UncertaintySensitivityArtifactStore",
+    "UncertaintySensitivityTableArtifact",
     "UncertaintyScenarioArtifactManifest",
     "UncertaintyScenarioArtifactStore",
     "ValidationArtifactManifest",
@@ -97,5 +110,6 @@ __all__ = [
     "semantic_population_content_hash",
     "semantic_draw_hash",
     "semantic_uncertainty_execution_hash",
+    "semantic_uncertainty_sensitivity_hash",
     "semantic_validation_table_hash",
 ]
