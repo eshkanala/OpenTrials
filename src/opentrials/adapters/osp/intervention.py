@@ -74,6 +74,8 @@ class OspAdministrationTarget(BaseModel):
     dose_unit: str = Field(min_length=1)
     administration_time_parameter_path: str = Field(min_length=1)
     administration_time_unit: str = Field(min_length=1)
+    infusion_duration_parameter_path: str | None = None
+    infusion_duration_unit: str | None = None
 
     @model_validator(mode="after")
     def validate_parameter_units(self) -> OspAdministrationTarget:
@@ -85,6 +87,18 @@ class OspAdministrationTarget(BaseModel):
             unit_registry.Quantity(1, self.administration_time_unit).to("second")
         except (UndefinedUnitError, DimensionalityError) as error:
             raise ValueError("OSP administration_time_unit must have time dimensions.") from error
+        duration_fields = (self.infusion_duration_parameter_path, self.infusion_duration_unit)
+        if any(field is None for field in duration_fields) and any(
+            field is not None for field in duration_fields
+        ):
+            raise ValueError(
+                "OSP infusion-duration parameter path and unit must be provided together."
+            )
+        if self.infusion_duration_unit is not None:
+            try:
+                unit_registry.Quantity(1, self.infusion_duration_unit).to("second")
+            except (UndefinedUnitError, DimensionalityError) as error:
+                raise ValueError("OSP infusion_duration_unit must have time dimensions.") from error
         return self
 
 
@@ -132,10 +146,11 @@ class OspInterventionPlan(BaseModel):
     requested_dose: ScientificValue
     requested_route: Route
     requested_administration_time: ScientificValue
+    requested_infusion_duration: ScientificValue | None = None
     osp_molecule_id: str = Field(min_length=1)
     osp_administration_target_id: str = Field(min_length=1)
     executable_route: Route
-    assignments: tuple[OspParameterAssignment, ...] = Field(min_length=2, max_length=2)
+    assignments: tuple[OspParameterAssignment, ...] = Field(min_length=2, max_length=3)
 
 
 class OspInterventionTranslation(BaseModel):
@@ -228,6 +243,31 @@ class OspInterventionTranslator:
                 "regimen.doses[0]",
                 f"Requested dose cannot be converted to the selected OSP target: {error}",
             )
+        executable_duration: ScientificValue | None = None
+        if dose.infusion_duration is not None and target.infusion_duration_unit is None:
+            return self._raise_unsupported(
+                items,
+                "regimen.doses[0].infusion_duration",
+                (
+                    "The selected OSP administration target has no verified "
+                    "infusion-duration parameter."
+                ),
+            )
+        if dose.infusion_duration is None and target.infusion_duration_unit is not None:
+            return self._raise_unsupported(
+                items,
+                "regimen.doses[0].infusion_duration",
+                "The selected OSP administration target requires an explicit infusion duration.",
+            )
+        if dose.infusion_duration is not None and target.infusion_duration_unit is not None:
+            try:
+                executable_duration = dose.infusion_duration.to(target.infusion_duration_unit)
+            except UnitCompatibilityError as error:
+                return self._raise_unsupported(
+                    items,
+                    "regimen.doses[0].infusion_duration",
+                    (f"Requested infusion duration cannot be converted to OSP target: {error}"),
+                )
         items.extend(
             (
                 InterventionTranslationItem(
@@ -258,6 +298,18 @@ class OspInterventionTranslator:
                 ),
             )
         )
+        if executable_duration is not None and target.infusion_duration_parameter_path is not None:
+            items.append(
+                InterventionTranslationItem(
+                    source_field="regimen.doses[0].infusion_duration",
+                    status=InterventionFeatureStatus.MAPPED,
+                    target_field=target.infusion_duration_parameter_path,
+                    detail=(
+                        "Converts requested infusion duration to "
+                        f"{target.infusion_duration_unit!r} for the selected target."
+                    ),
+                )
+            )
         return OspInterventionTranslation(
             plan=OspInterventionPlan(
                 intervention_id=intervention.intervention_id,
@@ -266,6 +318,7 @@ class OspInterventionTranslator:
                 requested_dose=dose.amount,
                 requested_route=dose.route,
                 requested_administration_time=dose.administration_time,
+                requested_infusion_duration=dose.infusion_duration,
                 osp_molecule_id=compound_mapping.osp_molecule_id,
                 osp_administration_target_id=target.target_id,
                 executable_route=target.route,
@@ -281,6 +334,20 @@ class OspInterventionTranslator:
                         value=executable_time.value,
                         unit=target.administration_time_unit,
                         source_field="regimen.doses[0].administration_time",
+                    ),
+                    *(
+                        (
+                            OspParameterAssignment(
+                                parameter_path=target.infusion_duration_parameter_path,
+                                value=executable_duration.value,
+                                unit=target.infusion_duration_unit,
+                                source_field="regimen.doses[0].infusion_duration",
+                            ),
+                        )
+                        if executable_duration is not None
+                        and target.infusion_duration_parameter_path is not None
+                        and target.infusion_duration_unit is not None
+                        else ()
                     ),
                 ),
             ),

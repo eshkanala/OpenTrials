@@ -71,6 +71,55 @@ def test_translator_builds_an_explicit_single_dose_plan() -> None:
     assert not translation.report.unsupported
 
 
+def test_translator_builds_a_three_assignment_iv_infusion_plan() -> None:
+    target = OspAdministrationTarget(
+        target_id="iv-250mg-10min",
+        osp_molecule_id="Aciclovir",
+        route=Route.INTRAVENOUS,
+        dose_parameter_path="Events|IV 250mg 10min|Application_1|ProtocolSchemaItem|Dose",
+        dose_unit="kg",
+        administration_time_parameter_path=(
+            "Events|IV 250mg 10min|Application_1|ProtocolSchemaItem|Start time"
+        ),
+        administration_time_unit="min",
+        infusion_duration_parameter_path=(
+            "Events|IV 250mg 10min|Application_1|ProtocolSchemaItem|Infusion time"
+        ),
+        infusion_duration_unit="min",
+    )
+    iv_intervention = intervention(route=Route.INTRAVENOUS).model_copy(
+        update={
+            "regimen": Regimen(
+                regimen_id="aciclovir-iv-regimen",
+                doses=(
+                    Dose(
+                        amount=assumed(250, "mg"),
+                        route=Route.INTRAVENOUS,
+                        administration_time=assumed(0, "min"),
+                        infusion_duration=assumed(10, "min"),
+                    ),
+                ),
+            )
+        }
+    )
+    translation = OspInterventionTranslator(
+        OspInterventionProfile(
+            compound_mappings=profile().compound_mappings,
+            administration_targets=(target,),
+        )
+    ).translate(iv_intervention)
+
+    assert translation.plan is not None
+    assert translation.plan.requested_infusion_duration is not None
+    assert tuple(assignment.source_field for assignment in translation.plan.assignments) == (
+        "regimen.doses[0].amount",
+        "regimen.doses[0].administration_time",
+        "regimen.doses[0].infusion_duration",
+    )
+    assert translation.plan.assignments[0].value == 0.00025
+    assert translation.plan.assignments[2].value == 10
+
+
 def test_translator_rejects_an_unknown_compound_without_a_fallback() -> None:
     with pytest.raises(InterventionTranslationError) as error:
         OspInterventionTranslator(profile()).translate(intervention(compound_id="unknown"))
