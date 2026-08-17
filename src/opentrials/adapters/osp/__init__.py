@@ -36,9 +36,19 @@ from opentrials.adapters.osp.population import (
     PopulationTranslationReport,
     UnsupportedPopulationFeatureError,
 )
+from opentrials.adapters.osp.uncertainty import (
+    ACICLOVIR_IV_DOSE_TARGET,
+    ACICLOVIR_IV_MODEL_SHA256,
+    OspUncertaintyAssignment,
+    UnsupportedUncertaintyTargetError,
+    resolve_aciclovir_iv_dose_uncertainty,
+)
 
 __all__ = [
+    "ACICLOVIR_IV_DOSE_TARGET",
+    "ACICLOVIR_IV_MODEL_SHA256",
     "OspDeterminismLevel",
+    "OspUncertaintyAssignment",
     "OspModelCapabilityChecker",
     "OspModelCapabilityItem",
     "OspModelCapabilityProfile",
@@ -67,4 +77,6 @@ __all__ = [
     "PopulationFeatureStatus",
     "PopulationTranslationReport",
     "UnsupportedPopulationFeatureError",
+    "UnsupportedUncertaintyTargetError",
+    "resolve_aciclovir_iv_dose_uncertainty",
 ]

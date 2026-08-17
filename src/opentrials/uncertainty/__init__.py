@@ -7,9 +7,19 @@ from opentrials.uncertainty.contracts import (
     UncertaintySamplingPlan,
     UncertaintyScenario,
 )
+from opentrials.uncertainty.execution import (
+    MaterializedParameterValue,
+    MaterializedUncertaintyDraw,
+    MaterializedUncertaintyDrawSet,
+    materialize_uncertainty_draws,
+)
 
 __all__ = [
     "CorrelationGroup",
+    "MaterializedParameterValue",
+    "MaterializedUncertaintyDraw",
+    "MaterializedUncertaintyDrawSet",
+    "materialize_uncertainty_draws",
     "SamplingMethod",
     "UncertainParameter",
     "UncertaintySamplingPlan",
