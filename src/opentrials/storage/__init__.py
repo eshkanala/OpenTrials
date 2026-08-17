@@ -6,6 +6,7 @@ from opentrials.storage.populations import (
     PopulationGenerationProvenance,
     PopulationGeneratorProvenance,
     PopulationTableArtifact,
+    semantic_population_content_hash,
 )
 from opentrials.storage.runs import RunArtifactStore
 
@@ -16,4 +17,5 @@ __all__ = [
     "PopulationGeneratorProvenance",
     "PopulationTableArtifact",
     "RunArtifactStore",
+    "semantic_population_content_hash",
 ]

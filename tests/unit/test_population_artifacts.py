@@ -8,6 +8,7 @@ from opentrials.storage import (
     PopulationArtifactStore,
     PopulationGenerationProvenance,
     PopulationGeneratorProvenance,
+    semantic_population_content_hash,
 )
 
 
@@ -76,8 +77,10 @@ def test_population_artifact_preserves_raw_table_and_distinguishes_identities(
     )
 
     table = pq.read_table(first_directory / "individuals.parquet")
+    reloaded = store.verify_population("OTPGEN-001")
 
     assert first.generation_id != second.generation_id
+    assert reloaded.individuals.semantic_content_sha256 == first.individuals.semantic_content_sha256
     assert first.individuals.semantic_content_sha256 == second.individuals.semantic_content_sha256
     assert table.column_names == ["IndividualId", "Gender", "Organism|Age"]
     assert table.num_rows == 2
@@ -86,6 +89,17 @@ def test_population_artifact_preserves_raw_table_and_distinguishes_identities(
         in (first_directory / "manifest.json").read_text()
     )
     assert (second_directory / "manifest.json").is_file()
+
+
+def test_semantic_population_hash_normalizes_equivalent_numeric_cells() -> None:
+    columns = ("IndividualId", "Organism|Age")
+
+    integer_rows = ({"IndividualId": 0, "Organism|Age": 40},)
+    float_rows = ({"IndividualId": 0.0, "Organism|Age": 40.0},)
+
+    assert semantic_population_content_hash(
+        columns, integer_rows
+    ) == semantic_population_content_hash(columns, float_rows)
 
 
 def test_population_artifact_rejects_changed_or_incomplete_tables(tmp_path: Path) -> None:
