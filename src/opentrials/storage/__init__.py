@@ -33,6 +33,12 @@ from opentrials.storage.results import (
     semantic_concentration_time_hash,
 )
 from opentrials.storage.runs import RunArtifactStore
+from opentrials.storage.validation import (
+    ValidationArtifactManifest,
+    ValidationArtifactStore,
+    ValidationTableArtifact,
+    semantic_validation_table_hash,
+)
 
 __all__ = [
     "CONCENTRATION_TIME_COLUMNS",
@@ -55,9 +61,13 @@ __all__ = [
     "ResultArtifactStore",
     "ResultSelectionMapping",
     "RunArtifactStore",
+    "ValidationArtifactManifest",
+    "ValidationArtifactStore",
+    "ValidationTableArtifact",
     "normalize_osp_concentration_time_rows",
     "semantic_concentration_time_hash",
     "semantic_observations_hash",
     "semantic_pk_endpoint_hash",
     "semantic_population_content_hash",
+    "semantic_validation_table_hash",
 ]
