@@ -7,7 +7,11 @@ from opentrials.adapters.osp.capabilities import (
     OspModelCapabilityReport,
     OspModelCapabilityStatus,
 )
-from opentrials.adapters.osp.engine import OspSimulationEngine, OspWorkerError
+from opentrials.adapters.osp.engine import (
+    OspExecutionVerificationError,
+    OspSimulationEngine,
+    OspWorkerError,
+)
 from opentrials.adapters.osp.generation import OspPopulationGenerationResult, OspPopulationGenerator
 from opentrials.adapters.osp.intervention import (
     InterventionFeatureStatus,
@@ -57,6 +61,7 @@ __all__ = [
     "OspPopulationRequest",
     "OspPopulationTranslation",
     "OspPopulationTranslator",
+    "OspExecutionVerificationError",
     "OspSimulationEngine",
     "OspWorkerError",
     "PopulationFeatureStatus",

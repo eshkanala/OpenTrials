@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from opentrials.adapters.osp.intervention import OspParameterAssignment
 from opentrials.core.serialization import SchemaDocument, document
 from opentrials.models.manifest import ModelType
 from opentrials.models.package import ModelPackage
@@ -33,6 +34,14 @@ DEFAULT_DOTNET_ROOT = "/opt/homebrew/opt/dotnet@8/libexec"
 
 class OspWorkerError(RuntimeError):
     """Raised when the isolated OSP worker cannot produce a valid result."""
+
+
+class OspExecutionVerificationError(OspWorkerError):
+    """A worker-blocked run retaining the solver-state verification evidence."""
+
+    def __init__(self, message: str, verification: Mapping[str, Any] | None) -> None:
+        super().__init__(message)
+        self.verification = verification
 
 
 def _file_uri_to_path(artifact_uri: str) -> Path:
@@ -111,14 +120,39 @@ class OspSimulationEngine:
             raise ValueError("Cannot prepare an invalid OSP run: " + "; ".join(validation.errors))
         return PreparedRun(run_id=run_id, trial=trial, model_packages=packages, seed=trial.seed)
 
-    def run(self, prepared_run: PreparedRun) -> RawSimulationResult:
+    def run(
+        self,
+        prepared_run: PreparedRun,
+        *,
+        expected_pkml_sha256: str | None = None,
+        expected_administration_container: str | None = None,
+        parameter_assignments: tuple[OspParameterAssignment, ...] = (),
+    ) -> RawSimulationResult:
+        """Run unchanged PKML or a worker-verified, explicit assignment plan."""
         package = prepared_run.model_packages[0]
         pkml_path = _file_uri_to_path(package.artifact_uri)
-        request = document(
-            WORKER_REQUEST_SCHEMA,
-            {"run_id": prepared_run.run_id, "pkml_path": str(pkml_path)},
-            WORKER_SCHEMA_VERSION,
-        )
+        payload: dict[str, Any] = {"run_id": prepared_run.run_id, "pkml_path": str(pkml_path)}
+        if parameter_assignments:
+            if expected_pkml_sha256 is None or expected_administration_container is None:
+                raise ValueError(
+                    "Verified assignments require expected PKML hash and administration container."
+                )
+            payload.update(
+                {
+                    "expected_pkml_sha256": expected_pkml_sha256.removeprefix("sha256:"),
+                    "expected_administration_container": expected_administration_container,
+                    "parameter_assignments": [
+                        {
+                            "path": assignment.parameter_path,
+                            "value": assignment.value,
+                            "unit": assignment.unit,
+                            "source_field": assignment.source_field,
+                        }
+                        for assignment in parameter_assignments
+                    ],
+                }
+            )
+        request = document(WORKER_REQUEST_SCHEMA, payload, WORKER_SCHEMA_VERSION)
 
         with tempfile.TemporaryDirectory(prefix="opentrials-osp-") as temporary_directory:
             temporary_path = Path(temporary_directory)
@@ -126,14 +160,21 @@ class OspSimulationEngine:
             response_path = temporary_path / "response.json"
             request_path.write_text(request.canonical_json(), encoding="utf-8")
             completed = self._invoke_worker(request_path, response_path)
+            if not response_path.is_file():
+                raise OspWorkerError("OSP worker completed without writing a response artifact.")
+            response = self._read_response(response_path)
             if completed.returncode != 0:
                 worker_message = completed.stderr.strip() or completed.stdout.strip()
+                verification = response.payload.get("execution_verification")
+                if isinstance(verification, dict):
+                    raise OspExecutionVerificationError(
+                        "OSP execution verification blocked the solver: "
+                        f"{response.payload.get('error')}",
+                        verification,
+                    )
                 raise OspWorkerError(
                     f"OSP worker failed with exit code {completed.returncode}: {worker_message}"
                 )
-            if not response_path.is_file():
-                raise OspWorkerError("OSP worker succeeded without writing a response artifact.")
-            response = self._read_response(response_path)
 
         payload = response.payload
         if payload.get("status") != "SUCCEEDED":
