@@ -20,6 +20,7 @@ classifiers = [
 dependencies = [
   "pydantic>=2.7,<3",
   "pint>=0.24,<1",
+  "pyarrow>=18,<24",
   "pyyaml>=6.0,<7",
 ]
 
