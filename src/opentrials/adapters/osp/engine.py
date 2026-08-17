@@ -28,6 +28,9 @@ from opentrials.trials.trial import Trial
 WORKER_REQUEST_SCHEMA = "opentrials.osp.worker-request"
 WORKER_RESPONSE_SCHEMA = "opentrials.osp.worker-response"
 WORKER_SCHEMA_VERSION = "1.0.0"
+POPULATION_EXECUTION_WORKER_REQUEST_SCHEMA = "opentrials.osp.population-execution-worker-request"
+POPULATION_EXECUTION_WORKER_RESPONSE_SCHEMA = "opentrials.osp.population-execution-worker-response"
+POPULATION_EXECUTION_WORKER_SCHEMA_VERSION = "1.0.0"
 DEFAULT_FRAMEWORK_RSCRIPT = Path("/Library/Frameworks/R.framework/Resources/bin/Rscript")
 DEFAULT_DOTNET_ROOT = "/opt/homebrew/opt/dotnet@8/libexec"
 
@@ -69,12 +72,16 @@ class OspSimulationEngine:
         *,
         rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
         worker_path: Path | None = None,
+        population_worker_path: Path | None = None,
         dotnet_root: str = DEFAULT_DOTNET_ROOT,
         r_libs_user: str | None = None,
         timeout_seconds: float = 300.0,
     ) -> None:
         self._rscript_path = rscript_path
         self._worker_path = worker_path or Path(__file__).with_name("run_simulation.R")
+        self._population_worker_path = population_worker_path or Path(__file__).with_name(
+            "run_population_simulation.R"
+        )
         self._dotnet_root = dotnet_root
         self._r_libs_user = r_libs_user
         self._timeout_seconds = timeout_seconds
@@ -159,10 +166,14 @@ class OspSimulationEngine:
             request_path = temporary_path / "request.json"
             response_path = temporary_path / "response.json"
             request_path.write_text(request.canonical_json(), encoding="utf-8")
-            completed = self._invoke_worker(request_path, response_path)
+            completed = self._invoke_worker(self._worker_path, request_path, response_path)
             if not response_path.is_file():
                 raise OspWorkerError("OSP worker completed without writing a response artifact.")
-            response = self._read_response(response_path)
+            response = self._read_response(
+                response_path,
+                expected_schema=WORKER_RESPONSE_SCHEMA,
+                expected_schema_version=WORKER_SCHEMA_VERSION,
+            )
             if completed.returncode != 0:
                 worker_message = completed.stderr.strip() or completed.stdout.strip()
                 verification = response.payload.get("execution_verification")
@@ -181,6 +192,109 @@ class OspSimulationEngine:
             raise OspWorkerError(f"OSP worker returned an unsuccessful response: {payload!r}")
         if payload.get("run_id") != prepared_run.run_id:
             raise OspWorkerError("OSP worker response run ID does not match the submitted run.")
+        generated_at = _parse_generated_at(payload.get("generated_at"))
+        return RawSimulationResult(
+            run_id=prepared_run.run_id,
+            engine_id=self.engine_id,
+            generated_at=generated_at,
+            payload=payload,
+        )
+
+    def run_population(
+        self,
+        prepared_run: PreparedRun,
+        *,
+        population_columns: tuple[str, ...],
+        population_rows: tuple[Mapping[str, Any], ...],
+        expected_population_count: int,
+        expected_pkml_sha256: str,
+        expected_administration_container: str | None = None,
+        parameter_assignments: tuple[OspParameterAssignment, ...] = (),
+    ) -> RawSimulationResult:
+        """Reconstruct a verified population and batch-run it through PBPK.
+
+        ``population_columns``/``population_rows`` must be the exact table
+        already verified against a persisted ``OTPGEN`` artifact by the
+        caller; this adapter performs no population generation or trust
+        decision of its own. The PKML hash is always required here (unlike
+        the single-individual ``run()``): population execution is always
+        hash-pinned.
+        """
+        package = prepared_run.model_packages[0]
+        pkml_path = _file_uri_to_path(package.artifact_uri)
+        if expected_population_count != len(population_rows):
+            raise ValueError("expected_population_count does not match the supplied row count.")
+        payload: dict[str, Any] = {
+            "run_id": prepared_run.run_id,
+            "pkml_path": str(pkml_path),
+            "expected_pkml_sha256": expected_pkml_sha256.removeprefix("sha256:"),
+            "population_columns": list(population_columns),
+            "population_rows": [dict(row) for row in population_rows],
+            "expected_population_count": expected_population_count,
+        }
+        if parameter_assignments:
+            if expected_administration_container is None:
+                raise ValueError("Verified assignments require an administration container.")
+            payload.update(
+                {
+                    "expected_administration_container": expected_administration_container,
+                    "parameter_assignments": [
+                        {
+                            "path": assignment.parameter_path,
+                            "value": assignment.value,
+                            "unit": assignment.unit,
+                            "source_field": assignment.source_field,
+                        }
+                        for assignment in parameter_assignments
+                    ],
+                }
+            )
+        request = document(
+            POPULATION_EXECUTION_WORKER_REQUEST_SCHEMA,
+            payload,
+            POPULATION_EXECUTION_WORKER_SCHEMA_VERSION,
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="opentrials-osp-population-"
+        ) as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            request_path = temporary_path / "request.json"
+            response_path = temporary_path / "response.json"
+            request_path.write_text(request.canonical_json(), encoding="utf-8")
+            completed = self._invoke_worker(
+                self._population_worker_path, request_path, response_path
+            )
+            if not response_path.is_file():
+                raise OspWorkerError(
+                    "OSP population worker completed without writing a response artifact."
+                )
+            response = self._read_response(
+                response_path,
+                expected_schema=POPULATION_EXECUTION_WORKER_RESPONSE_SCHEMA,
+                expected_schema_version=POPULATION_EXECUTION_WORKER_SCHEMA_VERSION,
+            )
+            if completed.returncode != 0:
+                worker_message = completed.stderr.strip() or completed.stdout.strip()
+                verification = response.payload.get("execution_verification")
+                if isinstance(verification, dict):
+                    raise OspExecutionVerificationError(
+                        "OSP population execution verification blocked the solver: "
+                        f"{response.payload.get('error')}",
+                        verification,
+                    )
+                raise OspWorkerError(
+                    f"OSP population worker failed with exit code {completed.returncode}: "
+                    f"{worker_message}"
+                )
+
+        payload = response.payload
+        if payload.get("status") != "SUCCEEDED":
+            raise OspWorkerError(f"OSP population worker returned a failed response: {payload!r}")
+        if payload.get("run_id") != prepared_run.run_id:
+            raise OspWorkerError(
+                "OSP population worker response run ID does not match the submitted run."
+            )
         generated_at = _parse_generated_at(payload.get("generated_at"))
         return RawSimulationResult(
             run_id=prepared_run.run_id,
@@ -210,12 +324,12 @@ class OspSimulationEngine:
         }
 
     def _invoke_worker(
-        self, request_path: Path, response_path: Path
+        self, worker_path: Path, request_path: Path, response_path: Path
     ) -> subprocess.CompletedProcess[str]:
         if not self._rscript_path.is_file():
             raise OspWorkerError(f"Rscript executable does not exist: {self._rscript_path}")
-        if not self._worker_path.is_file():
-            raise OspWorkerError(f"OSP worker script does not exist: {self._worker_path}")
+        if not worker_path.is_file():
+            raise OspWorkerError(f"OSP worker script does not exist: {worker_path}")
         environment = os.environ.copy()
         environment["DOTNET_ROOT"] = self._dotnet_root
         if self._r_libs_user is not None:
@@ -223,7 +337,7 @@ class OspSimulationEngine:
         return subprocess.run(
             [
                 str(self._rscript_path),
-                str(self._worker_path),
+                str(worker_path),
                 "--input",
                 str(request_path),
                 "--output",
@@ -237,15 +351,17 @@ class OspSimulationEngine:
         )
 
     @staticmethod
-    def _read_response(response_path: Path) -> SchemaDocument:
+    def _read_response(
+        response_path: Path, *, expected_schema: str, expected_schema_version: str
+    ) -> SchemaDocument:
         try:
             decoded: Mapping[str, Any] = json.loads(response_path.read_text(encoding="utf-8"))
             response = SchemaDocument.model_validate(decoded)
         except (OSError, json.JSONDecodeError, ValueError) as error:
             raise OspWorkerError(f"OSP worker emitted an invalid JSON response: {error}") from error
-        if response.schema_id != WORKER_RESPONSE_SCHEMA:
+        if response.schema_id != expected_schema:
             raise OspWorkerError(f"Unexpected OSP worker response schema: {response.schema_id!r}")
-        if response.schema_version != WORKER_SCHEMA_VERSION:
+        if response.schema_version != expected_schema_version:
             raise OspWorkerError(
                 f"Unsupported OSP worker response version: {response.schema_version!r}"
             )

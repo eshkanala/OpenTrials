@@ -30,6 +30,7 @@ opentrials = "opentrials.cli.main:main"
 [tool.hatch.build.targets.wheel.force-include]
 "src/opentrials/adapters/osp/generate_population.R" = "opentrials/adapters/osp/generate_population.R"
 "src/opentrials/adapters/osp/run_simulation.R" = "opentrials/adapters/osp/run_simulation.R"
+"src/opentrials/adapters/osp/run_population_simulation.R" = "opentrials/adapters/osp/run_population_simulation.R"
 
 [project.optional-dependencies]
 dev = [

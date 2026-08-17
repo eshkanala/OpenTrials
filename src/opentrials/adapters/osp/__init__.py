@@ -37,6 +37,7 @@ from opentrials.adapters.osp.population import (
     PopulationTranslationReport,
     UnsupportedPopulationFeatureError,
 )
+from opentrials.adapters.osp.population_lineage import resolve_population_execution_lineage
 from opentrials.adapters.osp.uncertainty import (
     ACICLOVIR_IV_DOSE_TARGET,
     ACICLOVIR_IV_MODEL_SHA256,
@@ -81,4 +82,5 @@ __all__ = [
     "UnsupportedPopulationFeatureError",
     "UnsupportedUncertaintyTargetError",
     "resolve_aciclovir_iv_dose_uncertainty",
+    "resolve_population_execution_lineage",
 ]
