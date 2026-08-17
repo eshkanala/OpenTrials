@@ -37,6 +37,12 @@ from opentrials.storage.uncertainty import (
     UncertaintyScenarioArtifactManifest,
     UncertaintyScenarioArtifactStore,
 )
+from opentrials.storage.uncertainty_draws import (
+    DrawTableArtifact,
+    UncertaintyDrawArtifactManifest,
+    UncertaintyDrawArtifactStore,
+    semantic_draw_hash,
+)
 from opentrials.storage.validation import (
     ValidationArtifactManifest,
     ValidationArtifactStore,
@@ -46,6 +52,7 @@ from opentrials.storage.validation import (
 
 __all__ = [
     "CONCENTRATION_TIME_COLUMNS",
+    "DrawTableArtifact",
     "PK_ENDPOINT_COLUMNS",
     "OBSERVATION_COLUMNS",
     "ConcentrationTimeTableArtifact",
@@ -65,6 +72,8 @@ __all__ = [
     "ResultArtifactStore",
     "ResultSelectionMapping",
     "RunArtifactStore",
+    "UncertaintyDrawArtifactManifest",
+    "UncertaintyDrawArtifactStore",
     "UncertaintyScenarioArtifactManifest",
     "UncertaintyScenarioArtifactStore",
     "ValidationArtifactManifest",
@@ -75,5 +84,6 @@ __all__ = [
     "semantic_observations_hash",
     "semantic_pk_endpoint_hash",
     "semantic_population_content_hash",
+    "semantic_draw_hash",
     "semantic_validation_table_hash",
 ]
