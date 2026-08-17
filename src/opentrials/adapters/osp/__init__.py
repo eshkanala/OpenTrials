@@ -7,6 +7,7 @@ from opentrials.adapters.osp.capabilities import (
     OspModelCapabilityReport,
     OspModelCapabilityStatus,
 )
+from opentrials.adapters.osp.cohort import osp_population_field_catalog
 from opentrials.adapters.osp.engine import (
     OspExecutionVerificationError,
     OspSimulationEngine,
@@ -47,6 +48,7 @@ from opentrials.adapters.osp.uncertainty import (
 __all__ = [
     "ACICLOVIR_IV_DOSE_TARGET",
     "ACICLOVIR_IV_MODEL_SHA256",
+    "osp_population_field_catalog",
     "OspDeterminismLevel",
     "OspUncertaintyAssignment",
     "OspModelCapabilityChecker",
