@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Local OpenTrials artifacts
+runs/
+*.parquet
+*.duckdb
+*.sqlite
+*.sqlite3
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
