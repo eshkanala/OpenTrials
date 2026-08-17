@@ -34,6 +34,25 @@ from opentrials.storage.populations import (
     PopulationTableArtifact,
     semantic_population_content_hash,
 )
+from opentrials.storage.responder_comparisons import (
+    CATEGORICAL_SUMMARY_COLUMNS,
+    NUMERIC_COMPARISON_COLUMNS,
+    NUMERIC_SUMMARY_COLUMNS,
+    ResponderComparisonArtifactManifest,
+    ResponderComparisonArtifactStore,
+    ResponderComparisonTableArtifact,
+    semantic_categorical_summary_hash,
+    semantic_numeric_comparison_hash,
+    semantic_numeric_summary_hash,
+)
+from opentrials.storage.responder_membership import (
+    RESPONDER_MEMBER_COLUMNS,
+    ExtremeResponderMembershipArtifactManifest,
+    ExtremeResponderMembershipArtifactStore,
+    ResponderGroupKind,
+    ResponderMembershipTableArtifact,
+    semantic_responder_membership_hash,
+)
 from opentrials.storage.results import (
     CONCENTRATION_TIME_COLUMNS,
     ConcentrationTimeTableArtifact,
@@ -44,6 +63,7 @@ from opentrials.storage.results import (
     normalize_osp_concentration_time_rows,
     semantic_concentration_time_hash,
 )
+from opentrials.storage.row_identity import source_row_sha256
 from opentrials.storage.runs import RunArtifactStore
 from opentrials.storage.uncertainty import (
     UncertaintyScenarioArtifactManifest,
@@ -82,6 +102,10 @@ __all__ = [
     "COMPARISON_COLUMNS",
     "GROUP_SUMMARY_COLUMNS",
     "MIN_LINEAGE_CAPABLE_SCHEMA_MAJOR",
+    "CATEGORICAL_SUMMARY_COLUMNS",
+    "NUMERIC_COMPARISON_COLUMNS",
+    "NUMERIC_SUMMARY_COLUMNS",
+    "RESPONDER_MEMBER_COLUMNS",
     "DrawTableArtifact",
     "PK_ENDPOINT_COLUMNS",
     "OBSERVATION_COLUMNS",
@@ -90,6 +114,8 @@ __all__ = [
     "CohortPkTableArtifact",
     "ConcentrationTimeTableArtifact",
     "ConversionPolicy",
+    "ExtremeResponderMembershipArtifactManifest",
+    "ExtremeResponderMembershipArtifactStore",
     "ObservedArtifactStore",
     "ObservedDatasetArtifactManifest",
     "ObservationsTableArtifact",
@@ -102,6 +128,11 @@ __all__ = [
     "PopulationGenerationProvenance",
     "PopulationGeneratorProvenance",
     "PopulationTableArtifact",
+    "ResponderComparisonArtifactManifest",
+    "ResponderComparisonArtifactStore",
+    "ResponderComparisonTableArtifact",
+    "ResponderGroupKind",
+    "ResponderMembershipTableArtifact",
     "ResultArtifactManifest",
     "ResultArtifactStore",
     "ResultSelectionMapping",
@@ -124,14 +155,19 @@ __all__ = [
     "ValidationTableArtifact",
     "normalize_osp_concentration_time_rows",
     "schema_major_version",
+    "semantic_categorical_summary_hash",
     "semantic_comparison_hash",
     "semantic_concentration_time_hash",
     "semantic_group_summary_hash",
+    "semantic_numeric_comparison_hash",
+    "semantic_numeric_summary_hash",
     "semantic_observations_hash",
     "semantic_pk_endpoint_hash",
     "semantic_population_content_hash",
     "semantic_draw_hash",
+    "semantic_responder_membership_hash",
     "semantic_uncertainty_execution_hash",
     "semantic_uncertainty_sensitivity_hash",
     "semantic_validation_table_hash",
+    "source_row_sha256",
 ]

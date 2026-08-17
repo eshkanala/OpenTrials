@@ -26,7 +26,14 @@ from opentrials.storage import (
 )
 
 SOURCE_HASH = "sha256:" + "a" * 64
-COLUMNS = ("IndividualId", "Gender", "Organism|Age")
+COLUMNS = (
+    "IndividualId",
+    "Gender",
+    "Organism|Age",
+    "Organism|Weight",
+    "Organism|Height",
+    "Organism|BMI",
+)
 GENERATION_ID = "OTPGEN-comparison-test"
 CMAX_VALUES = {0: 10.0, 1: 20.0, 2: 30.0, 3: 40.0, 4: 50.0}
 TMAX_VALUES = {0: 1.0, 1: 2.0, 2: 3.0, 3: 4.0, 4: 5.0}
@@ -34,11 +41,46 @@ TMAX_VALUES = {0: 1.0, 1: 2.0, 2: 3.0, 3: 4.0, 4: 5.0}
 
 def population_rows() -> tuple[dict[str, object], ...]:
     return (
-        {"IndividualId": 10, "Gender": "FEMALE", "Organism|Age": 25.0},
-        {"IndividualId": 11, "Gender": "MALE", "Organism|Age": 30.0},
-        {"IndividualId": 12, "Gender": "FEMALE", "Organism|Age": 45.0},
-        {"IndividualId": 13, "Gender": "MALE", "Organism|Age": 50.0},
-        {"IndividualId": 14, "Gender": "FEMALE", "Organism|Age": 60.0},
+        {
+            "IndividualId": 10,
+            "Gender": "FEMALE",
+            "Organism|Age": 25.0,
+            "Organism|Weight": 55.0,
+            "Organism|Height": 16.3,
+            "Organism|BMI": 0.207,
+        },
+        {
+            "IndividualId": 11,
+            "Gender": "MALE",
+            "Organism|Age": 30.0,
+            "Organism|Weight": 82.0,
+            "Organism|Height": 17.9,
+            "Organism|BMI": 0.256,
+        },
+        {
+            "IndividualId": 12,
+            "Gender": "FEMALE",
+            "Organism|Age": 45.0,
+            "Organism|Weight": 63.0,
+            "Organism|Height": 16.5,
+            "Organism|BMI": 0.231,
+        },
+        {
+            "IndividualId": 13,
+            "Gender": "MALE",
+            "Organism|Age": 50.0,
+            "Organism|Weight": 88.0,
+            "Organism|Height": 17.6,
+            "Organism|BMI": 0.284,
+        },
+        {
+            "IndividualId": 14,
+            "Gender": "FEMALE",
+            "Organism|Age": 60.0,
+            "Organism|Weight": 70.0,
+            "Organism|Height": 16.0,
+            "Organism|BMI": 0.273,
+        },
     )
 
 

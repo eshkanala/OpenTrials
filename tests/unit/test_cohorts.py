@@ -24,9 +24,30 @@ from opentrials.storage import (
 
 def rows() -> tuple[dict[str, object], ...]:
     return (
-        {"IndividualId": 10, "Gender": "FEMALE", "Organism|Age": 31.2},
-        {"IndividualId": 11, "Gender": "MALE", "Organism|Age": 42.7},
-        {"IndividualId": 12, "Gender": "FEMALE", "Organism|Age": None},
+        {
+            "IndividualId": 10,
+            "Gender": "FEMALE",
+            "Organism|Age": 31.2,
+            "Organism|Weight": 58.4,
+            "Organism|Height": 16.5,
+            "Organism|BMI": 0.2145,
+        },
+        {
+            "IndividualId": 11,
+            "Gender": "MALE",
+            "Organism|Age": 42.7,
+            "Organism|Weight": 79.1,
+            "Organism|Height": 17.8,
+            "Organism|BMI": 0.2497,
+        },
+        {
+            "IndividualId": 12,
+            "Gender": "FEMALE",
+            "Organism|Age": None,
+            "Organism|Weight": 61.0,
+            "Organism|Height": 16.2,
+            "Organism|BMI": 0.2324,
+        },
     )
 
 
@@ -46,7 +67,14 @@ def population_store(tmp_path: Path) -> tuple[PopulationArtifactStore, object]:
             requested_seed=1, engine_seed=1, determinism_level="STRICT"
         ),
         requested_count=3,
-        column_names=("IndividualId", "Gender", "Organism|Age"),
+        column_names=(
+            "IndividualId",
+            "Gender",
+            "Organism|Age",
+            "Organism|Weight",
+            "Organism|Height",
+            "Organism|BMI",
+        ),
         rows=rows(),
     )
     return store, manifest

@@ -17,9 +17,16 @@ from opentrials.cohort.definitions import (
     Predicate,
     PresencePredicate,
 )
-from opentrials.core.serialization import sha256
 from opentrials.core.units import unit_registry
 from opentrials.storage.populations import PopulationArtifactManifest
+from opentrials.storage.row_identity import source_row_sha256
+
+__all__ = [
+    "CohortEvaluator",
+    "EvaluatedMembership",
+    "MembershipRow",
+    "source_row_sha256",
+]
 
 
 @dataclass(frozen=True)
@@ -37,12 +44,6 @@ class EvaluatedMembership:
 
     definition: CohortDefinition
     members: tuple[MembershipRow, ...]
-
-
-def source_row_sha256(column_names: Sequence[str], row: Mapping[str, object]) -> str:
-    """Hash every declared source-table cell, not merely fields used in selection."""
-    columns = tuple(column_names)
-    return sha256({"columns": columns, "row": {column: row[column] for column in columns}})
 
 
 class CohortEvaluator:

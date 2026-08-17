@@ -7,7 +7,11 @@ from opentrials.analysis.cohort_comparison import (
     OverlapPolicy,
     OverlapReport,
 )
-from opentrials.analysis.descriptive import DescriptiveSummary, calculate_descriptive_summary
+from opentrials.analysis.descriptive import (
+    DescriptiveSummary,
+    calculate_descriptive_summary,
+    percentile,
+)
 from opentrials.analysis.pk import PkEndpointResult, PkEndpointType, calculate_pk_endpoints
 from opentrials.analysis.sensitivity import (
     PearsonSensitivity,
@@ -31,4 +35,5 @@ __all__ = [
     "calculate_descriptive_summary",
     "calculate_pearson_sensitivities",
     "calculate_pk_endpoints",
+    "percentile",
 ]

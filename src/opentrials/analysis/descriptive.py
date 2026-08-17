@@ -64,14 +64,19 @@ def calculate_descriptive_summary(values: Sequence[float]) -> DescriptiveSummary
         coefficient_of_variation=coefficient_of_variation,
         minimum=ordered[0],
         maximum=ordered[-1],
-        p25=_percentile(ordered, 0.25),
-        p50=_percentile(ordered, 0.50),
-        p75=_percentile(ordered, 0.75),
+        p25=percentile(ordered, 0.25),
+        p50=percentile(ordered, 0.50),
+        p75=percentile(ordered, 0.75),
     )
 
 
-def _percentile(ordered: Sequence[float], fraction: float) -> float:
-    """Linear-interpolated percentile over an already-sorted sample."""
+def percentile(ordered: Sequence[float], fraction: float) -> float:
+    """Linear-interpolated percentile over an already-sorted sample.
+
+    ``fraction`` is in ``[0, 1]``. Public so other rank/percentile-based
+    selection logic (for example extreme-responder thresholds) shares the
+    exact same interpolation convention as this module's own summaries.
+    """
     if len(ordered) == 1:
         return ordered[0]
     position = fraction * (len(ordered) - 1)
