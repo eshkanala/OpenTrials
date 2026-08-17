@@ -1,10 +1,22 @@
 """Local run-artifact storage contracts."""
 
+from opentrials.storage.cohort_comparisons import (
+    COMPARISON_COLUMNS,
+    GROUP_SUMMARY_COLUMNS,
+    CohortPkComparisonArtifactManifest,
+    CohortPkComparisonArtifactStore,
+    CohortPkTableArtifact,
+    semantic_comparison_hash,
+    semantic_group_summary_hash,
+)
 from opentrials.storage.endpoints import (
+    MIN_LINEAGE_CAPABLE_SCHEMA_MAJOR,
     PK_ENDPOINT_COLUMNS,
     PkEndpointArtifactManifest,
     PkEndpointArtifactStore,
+    PkEndpointSubjectLineage,
     PkEndpointTableArtifact,
+    schema_major_version,
     semantic_pk_endpoint_hash,
 )
 from opentrials.storage.observed import (
@@ -67,9 +79,15 @@ from opentrials.storage.validation import (
 
 __all__ = [
     "CONCENTRATION_TIME_COLUMNS",
+    "COMPARISON_COLUMNS",
+    "GROUP_SUMMARY_COLUMNS",
+    "MIN_LINEAGE_CAPABLE_SCHEMA_MAJOR",
     "DrawTableArtifact",
     "PK_ENDPOINT_COLUMNS",
     "OBSERVATION_COLUMNS",
+    "CohortPkComparisonArtifactManifest",
+    "CohortPkComparisonArtifactStore",
+    "CohortPkTableArtifact",
     "ConcentrationTimeTableArtifact",
     "ConversionPolicy",
     "ObservedArtifactStore",
@@ -77,6 +95,7 @@ __all__ = [
     "ObservationsTableArtifact",
     "PkEndpointArtifactManifest",
     "PkEndpointArtifactStore",
+    "PkEndpointSubjectLineage",
     "PkEndpointTableArtifact",
     "PopulationArtifactManifest",
     "PopulationArtifactStore",
@@ -104,7 +123,10 @@ __all__ = [
     "ValidationArtifactStore",
     "ValidationTableArtifact",
     "normalize_osp_concentration_time_rows",
+    "schema_major_version",
+    "semantic_comparison_hash",
     "semantic_concentration_time_hash",
+    "semantic_group_summary_hash",
     "semantic_observations_hash",
     "semantic_pk_endpoint_hash",
     "semantic_population_content_hash",

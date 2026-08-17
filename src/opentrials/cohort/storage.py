@@ -244,6 +244,18 @@ class CohortMembershipArtifactStore:
         )
         return manifest
 
+    def read_member_rows(self, membership_id: str) -> tuple[MembershipRow, ...]:
+        """Return the verified membership rows as typed, stable row references."""
+        self.verify_membership(membership_id)
+        return tuple(
+            MembershipRow(
+                source_subject_id=str(row["source_subject_id"]),
+                source_row_index=self._member_row_index(row),
+                source_row_sha256=str(row["source_row_sha256"]),
+            )
+            for row in self._read_member_rows(membership_id)
+        )
+
     def _read_member_rows(self, membership_id: str) -> tuple[dict[str, object], ...]:
         table = pq.read_table(self.root / membership_id / MEMBERS_PATH)
         if tuple(table.column_names) != MEMBERS_COLUMNS:

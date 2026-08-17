@@ -1,5 +1,13 @@
 """Immutable, solver-independent cohort definitions and membership artifacts."""
 
+from opentrials.cohort.comparison import (
+    CohortPkComparisonResult,
+    EndpointComparison,
+    GroupEndpointSummary,
+    OverlapPolicy,
+    OverlapReport,
+    compare_cohort_pk_endpoints,
+)
 from opentrials.cohort.definitions import (
     CategoricalPredicate,
     CohortDefinition,
@@ -33,17 +41,23 @@ __all__ = [
     "CohortKind",
     "CohortMembershipArtifactManifest",
     "CohortMembershipArtifactStore",
+    "CohortPkComparisonResult",
+    "EndpointComparison",
     "EvaluatedMembership",
     "EvaluatorProvenance",
     "FieldCatalog",
+    "GroupEndpointSummary",
     "LogicalField",
     "LogicalFieldKind",
     "MembershipRow",
     "MembershipTableArtifact",
     "NumericOperator",
     "NumericPredicate",
+    "OverlapPolicy",
+    "OverlapReport",
     "ParentMembershipReference",
     "PresencePredicate",
+    "compare_cohort_pk_endpoints",
     "semantic_membership_hash",
     "source_row_sha256",
 ]
