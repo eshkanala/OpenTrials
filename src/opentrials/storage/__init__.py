@@ -7,6 +7,13 @@ from opentrials.storage.endpoints import (
     PkEndpointTableArtifact,
     semantic_pk_endpoint_hash,
 )
+from opentrials.storage.observed import (
+    OBSERVATION_COLUMNS,
+    ObservationsTableArtifact,
+    ObservedArtifactStore,
+    ObservedDatasetArtifactManifest,
+    semantic_observations_hash,
+)
 from opentrials.storage.populations import (
     PopulationArtifactManifest,
     PopulationArtifactStore,
@@ -30,8 +37,12 @@ from opentrials.storage.runs import RunArtifactStore
 __all__ = [
     "CONCENTRATION_TIME_COLUMNS",
     "PK_ENDPOINT_COLUMNS",
+    "OBSERVATION_COLUMNS",
     "ConcentrationTimeTableArtifact",
     "ConversionPolicy",
+    "ObservedArtifactStore",
+    "ObservedDatasetArtifactManifest",
+    "ObservationsTableArtifact",
     "PkEndpointArtifactManifest",
     "PkEndpointArtifactStore",
     "PkEndpointTableArtifact",
@@ -46,6 +57,7 @@ __all__ = [
     "RunArtifactStore",
     "normalize_osp_concentration_time_rows",
     "semantic_concentration_time_hash",
+    "semantic_observations_hash",
     "semantic_pk_endpoint_hash",
     "semantic_population_content_hash",
 ]
