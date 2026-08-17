@@ -8,10 +8,17 @@ from pathlib import Path
 import pytest
 
 from opentrials.adapters.osp import OspParameterAssignment, OspSimulationEngine
+from opentrials.analysis import PkEndpointType, calculate_pk_endpoints
 from opentrials.compound import Compound, CompoundIdentity, Dose, Intervention, Regimen, Route
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.models import Applicability, ModelManifest, ModelPackage, ModelType
 from opentrials.patient import PopulationSpec
+from opentrials.storage import (
+    PkEndpointArtifactStore,
+    ResultArtifactStore,
+    ResultSelectionMapping,
+    normalize_osp_concentration_time_rows,
+)
 from opentrials.trials import (
     Endpoint,
     EndpointAggregation,
@@ -26,6 +33,7 @@ from opentrials.trials import (
 PKML_PATH = Path("/Users/eshkanala/Library/R/arm64/4.6/library/ospsuite/extdata/Aciclovir.pkml")
 PKML_SHA256 = "efbc7a3004534780bab46ca75a15dfd37ee271d4b8eec8c304b7ef5a2f083de7"
 IV_CONTAINER = "Events|IV 250mg 10min|"
+TOTAL_PLASMA_PATH = "Organism|PeripheralVenousBlood|Aciclovir|Plasma (Peripheral Venous Blood)"
 
 pytestmark = pytest.mark.osp_integration
 
@@ -130,7 +138,7 @@ def run_verified(dose_mg: float) -> object:
     )
 
 
-def test_verified_iv_perturbation_changes_osp_raw_output() -> None:
+def test_verified_iv_perturbation_changes_osp_raw_output(tmp_path: Path) -> None:
     if os.environ.get("OPENTRIALS_RUN_OSP_INTEGRATION") != "1":
         pytest.skip("Set OPENTRIALS_RUN_OSP_INTEGRATION=1 to run against local OSP.")
     if "OPENTRIALS_OSP_R_LIBS_USER" not in os.environ:
@@ -165,3 +173,52 @@ def test_verified_iv_perturbation_changes_osp_raw_output() -> None:
         ]
     )
     assert baseline.payload["raw_result_rows"] != perturbed.payload["raw_result_rows"]
+
+    normalized_endpoint_values: list[dict[PkEndpointType, float]] = []
+    selection = ResultSelectionMapping(
+        source_path=TOTAL_PLASMA_PATH,
+        analyte="aciclovir",
+        matrix="peripheral venous plasma",
+        fraction="total",
+        measurement="concentration",
+        time_unit="min",
+    )
+    for result, dose_mg in ((baseline, 250), (perturbed, 125)):
+        result_id = f"OTRES-osp-iv-{dose_mg:g}"
+        result_store = ResultArtifactStore(tmp_path / "results")
+        result_store.create_result(result_id)
+        selected_rows = tuple(
+            row for row in result.payload["raw_result_rows"] if row["paths"] == TOTAL_PLASMA_PATH
+        )
+        result_manifest = result_store.write_concentration_time(
+            result_id,
+            source_raw_result=result.payload,
+            raw_rows=selected_rows,
+            engine_id="osp",
+            model_id=package().manifest.id,
+            run_id=result.run_id,
+            selection=selection,
+        )
+        assert result_store.verify_result(result_id) == result_manifest
+        normalized_rows = normalize_osp_concentration_time_rows(selected_rows, selection)
+        endpoints = calculate_pk_endpoints(
+            normalized_rows, result_manifest.concentration_time.semantic_content_sha256
+        )
+        endpoint_store = PkEndpointArtifactStore(tmp_path / "endpoints")
+        endpoint_id = f"OTPK-osp-iv-{dose_mg:g}"
+        endpoint_store.create_endpoint_artifact(endpoint_id)
+        endpoint_manifest = endpoint_store.write_endpoints(
+            endpoint_id,
+            endpoints=endpoints,
+            source_result_semantic_sha256=result_manifest.concentration_time.semantic_content_sha256,
+            source_result_id=result_id,
+            run_id=result.run_id,
+            source_engine_id="osp",
+            source_model_id=package().manifest.id,
+        )
+        assert endpoint_store.verify_endpoints(endpoint_id) == endpoint_manifest
+        normalized_endpoint_values.append(
+            {endpoint.endpoint_type: endpoint.value for endpoint in endpoints}
+        )
+
+    assert normalized_endpoint_values[0] != normalized_endpoint_values[1]
