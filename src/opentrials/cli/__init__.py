@@ -1,0 +1,1 @@
+"""OpenTrials command-line interface."""

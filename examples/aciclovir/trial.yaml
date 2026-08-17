@@ -1,0 +1,43 @@
+schema: opentrials.trial
+schema_version: 1.0.0
+payload:
+  trial_id: ACICLOVIR-DEMO
+  title: Aciclovir configuration validation demo
+  question_of_interest: Can this protocol be represented and validated before simulation?
+  population:
+    id: healthy-adults-v1
+    size: 1
+    seed: 42
+    generator_version: 0.1.0
+    age_range:
+      minimum: {value: 18, unit: year, value_type: ASSUMED}
+      maximum: {value: 65, unit: year, value_type: ASSUMED}
+  arms:
+    - arm_id: aciclovir-400-mg
+      name: Aciclovir 400 mg oral
+      allocation: 1.0
+      intervention:
+        intervention_id: aciclovir-400-mg-oral
+        compound:
+          identity:
+            compound_id: aciclovir
+            preferred_name: Aciclovir
+        regimen:
+          regimen_id: aciclovir-single-dose
+          doses:
+            - amount: {value: 400, unit: mg, value_type: ASSUMED}
+              route: ORAL
+              administration_time: {value: 0, unit: hour, value_type: ASSUMED}
+  randomization: NONE
+  endpoints:
+    - endpoint_id: plasma-concentration
+      endpoint_type: PK
+      measurement: plasma aciclovir concentration
+      time_window:
+        start: {value: 0, unit: hour, value_type: ASSUMED}
+        end: {value: 24, unit: hour, value_type: ASSUMED}
+      aggregation: RAW
+      missingness_rule: REPORT
+      analysis_method: concentration-time profile
+      unit: mg/L
+  seed: 42
