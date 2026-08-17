@@ -38,6 +38,10 @@ class Dose(BaseModel):
     administration_time: ScientificValue = Field(
         description="Time elapsed from the enclosing regimen's reference time."
     )
+    infusion_duration: ScientificValue | None = Field(
+        default=None,
+        description="Duration of an intravenous infusion; absent for non-infusion administrations.",
+    )
     formulation_id: str | None = None
 
     @model_validator(mode="after")
@@ -54,6 +58,15 @@ class Dose(BaseModel):
             raise ValueError("Dose amount must be greater than zero.")
         if administration_time < 0:
             raise ValueError("Dose administration time cannot be negative.")
+        if self.infusion_duration is not None:
+            if self.route is not Route.INTRAVENOUS:
+                raise ValueError("Infusion duration is supported only for intravenous doses.")
+            try:
+                infusion_duration = self.infusion_duration.to("second").value
+            except UnitCompatibilityError as error:
+                raise ValueError("Infusion duration must have time dimensions.") from error
+            if infusion_duration <= 0:
+                raise ValueError("Infusion duration must be greater than zero.")
         return self
 
 

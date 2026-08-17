@@ -62,6 +62,33 @@ def test_dose_requires_mass_amount_and_time() -> None:
         )
 
 
+def test_infusion_duration_requires_a_positive_intravenous_time() -> None:
+    dose = Dose(
+        amount=observed(250, "mg"),
+        route=Route.INTRAVENOUS,
+        administration_time=observed(0, "min"),
+        infusion_duration=observed(10, "min"),
+    )
+
+    assert dose.infusion_duration is not None
+    assert dose.infusion_duration.to("minute").value == 10
+
+    with pytest.raises(ValidationError, match="only for intravenous"):
+        Dose(
+            amount=observed(250, "mg"),
+            route=Route.ORAL,
+            administration_time=observed(0, "min"),
+            infusion_duration=observed(10, "min"),
+        )
+    with pytest.raises(ValidationError, match="greater than zero"):
+        Dose(
+            amount=observed(250, "mg"),
+            route=Route.INTRAVENOUS,
+            administration_time=observed(0, "min"),
+            infusion_duration=observed(0, "min"),
+        )
+
+
 def test_regimen_requires_chronological_doses_within_duration() -> None:
     regimen = Regimen(
         regimen_id="aciclovir-400-mg-tid",
