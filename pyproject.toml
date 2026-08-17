@@ -41,6 +41,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+  "osp_integration: opt-in tests that require the locally installed OSP R runtime",
+]
 
 [tool.ruff]
 target-version = "py311"

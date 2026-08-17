@@ -164,8 +164,8 @@ class OspPopulationTranslator:
                 status=PopulationFeatureStatus.MAPPED,
                 target_field="requested_seed",
                 detail=(
-                    "Retained as a requested seed; OSP engine seed control and reproducibility "
-                    "are not yet verified."
+                    "Maps directly to OSP population-characteristics seed. Strict reproducibility "
+                    "is verified for the supported ospsuite 12.4.4 generation path."
                 ),
             ),
             PopulationTranslationItem(
@@ -233,6 +233,7 @@ class OspPopulationTranslator:
                     ),
                 ),
             ),
+            determinism_level=OspDeterminismLevel.STRICT,
         )
         translation = OspPopulationTranslation(
             request=OspPopulationRequest(

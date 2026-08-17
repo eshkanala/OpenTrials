@@ -69,9 +69,7 @@ run_worker <- function() {
     stop("Population worker requires explicit age bounds and female proportion in v0.1-B3b.", call. = FALSE)
   }
 
-  # This records the OpenTrials requested seed in R's RNG. Empirical testing on
-  # ospsuite 12.4.4 shows it does not make OSP population generation reproducible.
-  set.seed(payload$requested_seed)
+  # OSP's population-characteristics seed controls its internal generator.
   characteristics <- createPopulationCharacteristics(
     species = Species$Human,
     population = HumanPopulation[[payload$reference_population]],
@@ -79,7 +77,8 @@ run_worker <- function() {
     proportionOfFemales = payload$proportion_female_percent,
     ageMin = payload$age_minimum_years,
     ageMax = payload$age_maximum_years,
-    ageUnit = "year(s)"
+    ageUnit = "year(s)",
+    seed = payload$requested_seed
   )
   generated <- createPopulation(populationCharacteristics = characteristics)
   population_table <- populationToDataFrame(generated$population)
@@ -94,8 +93,8 @@ run_worker <- function() {
     status = "SUCCEEDED",
     population_id = payload$population_id,
     requested_seed = payload$requested_seed,
-    engine_seed = NA_integer_,
-    determinism_level = "NONDETERMINISTIC",
+    engine_seed = generated$seed,
+    determinism_level = "STRICT",
     r_version = R.version.string,
     ospsuite_version = as.character(utils::packageVersion("ospsuite")),
     column_names = names(population_table),

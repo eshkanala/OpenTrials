@@ -45,7 +45,7 @@ def test_translator_maps_a_female_age_constrained_population() -> None:
     assert translation.request.proportion_female_percent == 100
     assert not translation.report.unsupported
     assert not translation.report.defaulted
-    assert translation.report.determinism_level is OspDeterminismLevel.UNVERIFIED
+    assert translation.report.determinism_level is OspDeterminismLevel.STRICT
     assert translation.report.assumptions[0].assumption_id == "osp-generated-physiology"
 
 

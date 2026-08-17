@@ -71,8 +71,8 @@ def test_population_generator_preserves_raw_worker_table(
                         "status": "SUCCEEDED",
                         "population_id": "female-adults",
                         "requested_seed": 42,
-                        "engine_seed": None,
-                        "determinism_level": "NONDETERMINISTIC",
+                        "engine_seed": 42,
+                        "determinism_level": "STRICT",
                         "r_version": "R version 4.6.1",
                         "ospsuite_version": "12.4.4",
                         "column_names": ["IndividualId", "Gender", "Organism|Age"],
@@ -90,6 +90,7 @@ def test_population_generator_preserves_raw_worker_table(
         fully_mapped_translation()
     )
 
-    assert result.determinism_level is OspDeterminismLevel.NONDETERMINISTIC
+    assert result.engine_seed == 42
+    assert result.determinism_level is OspDeterminismLevel.STRICT
     assert len(result.raw_rows) == 10
     assert result.raw_rows[0]["Gender"] == "FEMALE"
