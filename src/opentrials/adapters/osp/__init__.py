@@ -2,6 +2,18 @@
 
 from opentrials.adapters.osp.engine import OspSimulationEngine, OspWorkerError
 from opentrials.adapters.osp.generation import OspPopulationGenerationResult, OspPopulationGenerator
+from opentrials.adapters.osp.intervention import (
+    InterventionFeatureStatus,
+    InterventionTranslationError,
+    OspAdministrationTarget,
+    OspCompoundMapping,
+    OspInterventionPlan,
+    OspInterventionProfile,
+    OspInterventionTranslation,
+    OspInterventionTranslationReport,
+    OspInterventionTranslator,
+    OspParameterAssignment,
+)
 from opentrials.adapters.osp.population import (
     OspDeterminismLevel,
     OspHumanPopulation,
@@ -17,6 +29,16 @@ from opentrials.adapters.osp.population import (
 __all__ = [
     "OspDeterminismLevel",
     "OspHumanPopulation",
+    "InterventionFeatureStatus",
+    "InterventionTranslationError",
+    "OspAdministrationTarget",
+    "OspCompoundMapping",
+    "OspInterventionPlan",
+    "OspInterventionProfile",
+    "OspInterventionTranslation",
+    "OspInterventionTranslationReport",
+    "OspInterventionTranslator",
+    "OspParameterAssignment",
     "OspPopulationGenerationResult",
     "OspPopulationGenerator",
     "OspPopulationProfile",
