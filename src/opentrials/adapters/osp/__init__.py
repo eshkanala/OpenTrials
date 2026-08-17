@@ -1,6 +1,7 @@
 """Isolated Open Systems Pharmacology worker integration."""
 
 from opentrials.adapters.osp.engine import OspSimulationEngine, OspWorkerError
+from opentrials.adapters.osp.generation import OspPopulationGenerationResult, OspPopulationGenerator
 from opentrials.adapters.osp.population import (
     OspDeterminismLevel,
     OspHumanPopulation,
@@ -16,6 +17,8 @@ from opentrials.adapters.osp.population import (
 __all__ = [
     "OspDeterminismLevel",
     "OspHumanPopulation",
+    "OspPopulationGenerationResult",
+    "OspPopulationGenerator",
     "OspPopulationProfile",
     "OspPopulationRequest",
     "OspPopulationTranslation",
