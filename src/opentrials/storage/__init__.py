@@ -33,6 +33,10 @@ from opentrials.storage.results import (
     semantic_concentration_time_hash,
 )
 from opentrials.storage.runs import RunArtifactStore
+from opentrials.storage.uncertainty import (
+    UncertaintyScenarioArtifactManifest,
+    UncertaintyScenarioArtifactStore,
+)
 from opentrials.storage.validation import (
     ValidationArtifactManifest,
     ValidationArtifactStore,
@@ -61,6 +65,8 @@ __all__ = [
     "ResultArtifactStore",
     "ResultSelectionMapping",
     "RunArtifactStore",
+    "UncertaintyScenarioArtifactManifest",
+    "UncertaintyScenarioArtifactStore",
     "ValidationArtifactManifest",
     "ValidationArtifactStore",
     "ValidationTableArtifact",
