@@ -1,5 +1,6 @@
 """Validation and scientific-credibility contracts."""
 
+from opentrials.validation.observed import ObservedDataset, ObservedPkObservation, ObservedStudy
 from opentrials.validation.study import (
     DatasetRole,
     MetricComparator,
@@ -14,6 +15,9 @@ from opentrials.validation.study import (
 __all__ = [
     "DatasetRole",
     "MetricComparator",
+    "ObservedDataset",
+    "ObservedPkObservation",
+    "ObservedStudy",
     "MetricDefinition",
     "MetricResult",
     "ValidationDataset",
