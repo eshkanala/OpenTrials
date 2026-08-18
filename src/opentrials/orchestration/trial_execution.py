@@ -41,6 +41,7 @@ from opentrials.adapters.osp import (
     resolve_population_execution_lineage,
 )
 from opentrials.adapters.osp.capability import osp_intervention_profile_from_capability
+from opentrials.adapters.osp.engine import DEFAULT_DOTNET_ROOT, DEFAULT_FRAMEWORK_RSCRIPT
 from opentrials.analysis.pk import PkEndpointResult, calculate_pk_endpoints
 from opentrials.compound.intervention import Intervention
 from opentrials.core.serialization import SchemaDocument, document, sha256
@@ -107,6 +108,8 @@ def run_trial_execution(
     population_root: Path,
     output_root: Path,
     r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
     observation_schedule: ObservationSchedule | None = None,
     progress: ProgressCallback | None = None,
 ) -> TrialExecutionRun:
@@ -205,6 +208,8 @@ def run_trial_execution(
             expected_administration_container=administration.administration_container_path,
             output_intervals=output_intervals,
             r_libs_user=r_libs_user,
+            rscript_path=rscript_path,
+            dotnet_root=dotnet_root,
         )
         _verify_population_raw_result(raw_result, arm_run_id, len(arm_population_rows))
         schedule_verified: bool | None = None
@@ -331,7 +336,7 @@ def run_trial_execution(
                 }
                 for arm, result in zip(trial.arms, arm_results, strict=True)
             },
-            "software_versions": _software_versions(r_libs_user),
+            "software_versions": _software_versions(r_libs_user, rscript_path, dotnet_root),
             "created_at": datetime.now(UTC),
         },
     )
@@ -381,7 +386,7 @@ def run_trial_execution(
             arms=tuple(arm_run_records),
             comparison_id=comparison_id,
             comparison_semantic_sha256=comparison_manifest.arm_summaries.semantic_content_sha256,
-            software_versions=_software_versions(r_libs_user),
+            software_versions=_software_versions(r_libs_user, rscript_path, dotnet_root),
             created_at=datetime.now(UTC),
         ),
     )
@@ -453,9 +458,13 @@ def _execute_osp_population(
     expected_administration_container: str,
     output_intervals: tuple[OspOutputInterval, ...] = (),
     r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
 ) -> RawSimulationResult:
     """Perform the external population execution; kept separate as the test seam."""
-    engine = OspSimulationEngine(r_libs_user=r_libs_user)
+    engine = OspSimulationEngine(
+        r_libs_user=r_libs_user, rscript_path=rscript_path, dotnet_root=dotnet_root
+    )
     return engine.run_population(
         prepared_run,
         population_columns=population_columns,
@@ -560,8 +569,14 @@ def _selected_raw_rows(
     return selected
 
 
-def _software_versions(r_libs_user: str) -> dict[str, str]:
-    versions = OspSimulationEngine(r_libs_user=r_libs_user).version_info()
+def _software_versions(
+    r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
+) -> dict[str, str]:
+    versions = OspSimulationEngine(
+        r_libs_user=r_libs_user, rscript_path=rscript_path, dotnet_root=dotnet_root
+    ).version_info()
     return {**versions, "python": platform.python_version(), "platform": platform.platform()}
 
 

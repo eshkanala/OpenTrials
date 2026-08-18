@@ -27,6 +27,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from opentrials.adapters.osp.engine import DEFAULT_DOTNET_ROOT, DEFAULT_FRAMEWORK_RSCRIPT
 from opentrials.adapters.osp.inspect_model import inspect_model_pkml
 
 
@@ -57,10 +58,18 @@ class ModelInspectionReport(BaseModel):
     r_version: str = Field(min_length=1)
 
 
-def inspect_model(pkml_path: Path, *, r_libs_user: str | None = None) -> ModelInspectionReport:
+def inspect_model(
+    pkml_path: Path,
+    *,
+    r_libs_user: str | None = None,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
+) -> ModelInspectionReport:
     """Discover a PKML file's structure through real OSP -- no interpretation."""
     pkml_path = Path(pkml_path)
-    payload = inspect_model_pkml(pkml_path, r_libs_user=r_libs_user)
+    payload = inspect_model_pkml(
+        pkml_path, r_libs_user=r_libs_user, rscript_path=rscript_path, dotnet_root=dotnet_root
+    )
     pkml_sha256 = "sha256:" + hashlib.sha256(pkml_path.read_bytes()).hexdigest()
 
     administrations = tuple(

@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from opentrials.adapters.osp.engine import DEFAULT_DOTNET_ROOT, DEFAULT_FRAMEWORK_RSCRIPT
 from opentrials.adapters.osp.generation import (
     POPULATION_WORKER_REQUEST_SCHEMA,
     POPULATION_WORKER_SCHEMA_VERSION,
@@ -45,6 +46,8 @@ def generate_population(
     *,
     population_root: Path,
     r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
     reference_population: OspHumanPopulation = DEFAULT_REFERENCE_POPULATION,
     events: EventSink | None = None,
 ) -> PopulationArtifactManifest:
@@ -69,7 +72,9 @@ def generate_population(
     )
 
     _emit(events, "generating_population", EventStatus.STARTED)
-    generator = OspPopulationGenerator(r_libs_user=r_libs_user)
+    generator = OspPopulationGenerator(
+        r_libs_user=r_libs_user, rscript_path=rscript_path, dotnet_root=dotnet_root
+    )
     result = generator.generate(translation)
     _emit(
         events,
@@ -120,6 +125,8 @@ def run_population(
     dose_mg: float,
     output_root: Path,
     r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
     transport: Literal["json", "csv"] = "json",
     events: EventSink | None = None,
 ) -> PopulationRun:
@@ -139,6 +146,8 @@ def run_population(
         dose_mg=dose_mg,
         output_root=output_root,
         r_libs_user=r_libs_user,
+        rscript_path=rscript_path,
+        dotnet_root=dotnet_root,
         transport=transport,
         progress=stage_progress_adapter(events),
     )

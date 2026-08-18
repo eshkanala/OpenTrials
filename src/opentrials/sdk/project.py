@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from opentrials.adapters.osp.engine import DEFAULT_DOTNET_ROOT, DEFAULT_FRAMEWORK_RSCRIPT
 from opentrials.compound.intervention import Dose
 from opentrials.config.project import ProjectConfig, load_project
 from opentrials.events import EventSink
@@ -61,6 +62,8 @@ class Project:
         *,
         output_root: Path,
         r_libs_user: str,
+        rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+        dotnet_root: str = DEFAULT_DOTNET_ROOT,
         events: EventSink | None = None,
     ) -> PopulationRun | TrialRun:
         """Execute this project's trial and return its result.
@@ -72,6 +75,10 @@ class Project:
         (under ``output_root/populations``) unless the project explicitly
         declares an existing ``population_generation_id``/``population_root``
         to reuse instead.
+
+        ``rscript_path``/``dotnet_root`` default to OpenTrials' own
+        compiled-in macOS layout; pass ``config.runtime.resolve_osp_runtime()``
+        (or your own values) to run against a different machine.
         """
         model = self.model()
         trial = self.config.trial
@@ -89,6 +96,8 @@ class Project:
                 trial.population,
                 population_root=population_root,
                 r_libs_user=r_libs_user,
+                rscript_path=rscript_path,
+                dotnet_root=dotnet_root,
                 events=events,
             )
             generation_id = manifest.generation_id
@@ -104,6 +113,8 @@ class Project:
                 population_root=population_root,
                 output_root=output_root,
                 r_libs_user=r_libs_user,
+                rscript_path=rscript_path,
+                dotnet_root=dotnet_root,
                 events=events,
             )
         dose_mg = _single_arm_dose_mg(trial.arms[0].intervention.regimen.doses[0], model)
@@ -114,6 +125,8 @@ class Project:
             dose_mg=dose_mg,
             output_root=output_root,
             r_libs_user=r_libs_user,
+            rscript_path=rscript_path,
+            dotnet_root=dotnet_root,
             events=events,
         )
 

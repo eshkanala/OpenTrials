@@ -88,6 +88,15 @@ responder analysis, and evidence-connector ingestion remain Python-API-only
   population sizes (~63% of total runtime at N=10,000) — a known,
   explicitly out-of-scope-for-now bottleneck, not a silent one.
 
+## No schema migration path yet
+
+Every persisted artifact and configuration schema is checked with strict
+exact-version matching, not tolerant reading — there is no migration
+tooling for moving an existing `runs/`/`populations/` directory to a
+newer OpenTrials version's schemas. See
+[`docs/architecture.md`'s "Schema versioning and compatibility"](architecture.md#schema-versioning-and-compatibility)
+for the full policy statement.
+
 ## Oral aciclovir is not supported
 
 No rights-cleared, locally available oral aciclovir PBPK model exists;

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from opentrials.config.runtime import resolve_osp_runtime
 from opentrials.models.registry import UnknownModelCapabilityError
 from opentrials.sdk.model_onboarding import (
     ModelInspectionReport,
@@ -83,8 +84,18 @@ def models_show(arguments: argparse.Namespace) -> int:
 
 
 def model_inspect(arguments: argparse.Namespace) -> int:
+    runtime = resolve_osp_runtime(
+        rscript_path=arguments.rscript_path,
+        dotnet_root=arguments.dotnet_root,
+        r_libs_user=arguments.r_libs_user,
+    )
     try:
-        report = inspect_model(arguments.pkml_path, r_libs_user=arguments.r_libs_user)
+        report = inspect_model(
+            arguments.pkml_path,
+            r_libs_user=runtime.r_libs_user,
+            rscript_path=runtime.rscript_path,
+            dotnet_root=runtime.dotnet_root,
+        )
     except (OSError, ValueError, RuntimeError) as error:
         print(f"Inspection failed: {error}")
         return 1
@@ -95,8 +106,18 @@ def model_inspect(arguments: argparse.Namespace) -> int:
 
 
 def model_init(arguments: argparse.Namespace) -> int:
+    runtime = resolve_osp_runtime(
+        rscript_path=arguments.rscript_path,
+        dotnet_root=arguments.dotnet_root,
+        r_libs_user=arguments.r_libs_user,
+    )
     try:
-        report = inspect_model(arguments.pkml_path, r_libs_user=arguments.r_libs_user)
+        report = inspect_model(
+            arguments.pkml_path,
+            r_libs_user=runtime.r_libs_user,
+            rscript_path=runtime.rscript_path,
+            dotnet_root=runtime.dotnet_root,
+        )
     except (OSError, ValueError, RuntimeError) as error:
         print(f"Inspection failed: {error}")
         return 1

@@ -109,7 +109,8 @@ def test_model_inspect_prints_the_discovery_warning(
     pkml_path = tmp_path / "fake.pkml"
     pkml_path.write_text("not a real pkml", encoding="utf-8")
     monkeypatch.setattr(
-        "opentrials.cli.model_commands.inspect_model", lambda path, r_libs_user: _fake_report(path)
+        "opentrials.cli.model_commands.inspect_model",
+        lambda path, r_libs_user, rscript_path, dotnet_root: _fake_report(path),
     )
     monkeypatch.setattr("sys.argv", ["opentrials", "model", "inspect", str(pkml_path)])
 
@@ -128,7 +129,8 @@ def test_model_init_writes_a_reviewable_scaffold(
     pkml_path.write_text("not a real pkml", encoding="utf-8")
     output_path = tmp_path / "scaffold.py"
     monkeypatch.setattr(
-        "opentrials.cli.model_commands.inspect_model", lambda path, r_libs_user: _fake_report(path)
+        "opentrials.cli.model_commands.inspect_model",
+        lambda path, r_libs_user, rscript_path, dotnet_root: _fake_report(path),
     )
     monkeypatch.setattr(
         "sys.argv",

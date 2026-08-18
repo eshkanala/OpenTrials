@@ -124,3 +124,34 @@ def test_run_without_r_libs_user_fails_cleanly(
 
     assert exit_code == 2
     assert "r-libs-user" in capsys.readouterr().out.lower()
+
+
+def test_version_flag_prints_the_installed_version_and_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.argv", ["opentrials", "--version"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+
+    assert excinfo.value.code == 0
+    assert capsys.readouterr().out.strip().startswith("opentrials ")
+
+
+def test_an_unanticipated_internal_error_is_reported_cleanly_not_as_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write(tmp_path, "project.yaml", PROJECT_YAML)
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AttributeError("simulated unanticipated bug")
+
+    monkeypatch.setattr("opentrials.cli.main._sniff_schema", _boom)
+    monkeypatch.setattr("sys.argv", ["opentrials", "validate", str(path)])
+
+    exit_code = main()
+
+    assert exit_code == 3
+    output = capsys.readouterr().out
+    assert "unexpected internal error" in output
+    assert "AttributeError" in output

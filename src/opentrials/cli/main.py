@@ -12,9 +12,9 @@ execution through the SDK's ``Project``).
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
+from importlib.metadata import version as installed_version
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from opentrials.cli import model_commands
 from opentrials.cli.progress import ProgressRenderer
 from opentrials.config import TrialConfigurationError, load_trial
 from opentrials.config.project import ProjectConfigurationError
+from opentrials.config.runtime import OspRuntimeConfig, resolve_osp_runtime
 from opentrials.orchestration import run_aciclovir_iv_engineering
 from opentrials.reporting import (
     build_population_report,
@@ -50,6 +51,9 @@ def _sniff_schema(path: Path) -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="opentrials")
+    parser.add_argument(
+        "--version", action="version", version=f"opentrials {installed_version('opentrials')}"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     validate = commands.add_parser(
@@ -62,7 +66,28 @@ def main() -> int:
     )
     run.add_argument("config", type=Path)
     run.add_argument("--output-root", type=Path, default=Path("runs"))
-    run.add_argument("--r-libs-user", default=os.environ.get("R_LIBS_USER"))
+    run.add_argument(
+        "--r-libs-user",
+        default=None,
+        help="Local ospsuite R library path. Falls back to R_LIBS_USER, then a config file.",
+    )
+    run.add_argument(
+        "--rscript-path",
+        type=Path,
+        default=None,
+        help=(
+            "Local Rscript executable. Falls back to OPENTRIALS_RSCRIPT_PATH, then a config "
+            "file, then OpenTrials' compiled-in macOS default."
+        ),
+    )
+    run.add_argument(
+        "--dotnet-root",
+        default=None,
+        help=(
+            "Local .NET runtime root. Falls back to OPENTRIALS_DOTNET_ROOT, then a config "
+            "file, then OpenTrials' compiled-in macOS default."
+        ),
+    )
     run.add_argument(
         "--verbose", action="store_true", help="Print every event's detail, not just its stage."
     )
@@ -93,12 +118,16 @@ def main() -> int:
         "inspect", help="Discover a PKML file's structure (read-only, no capability claims)."
     )
     model_inspect.add_argument("pkml_path", type=Path)
-    model_inspect.add_argument("--r-libs-user", default=os.environ.get("R_LIBS_USER"))
+    model_inspect.add_argument("--r-libs-user", default=None)
+    model_inspect.add_argument("--rscript-path", type=Path, default=None)
+    model_inspect.add_argument("--dotnet-root", default=None)
     model_init_parser = model_commands_parser.add_parser(
         "init", help="Generate a reviewable ModelCapabilityProfile scaffold from discovery."
     )
     model_init_parser.add_argument("pkml_path", type=Path)
-    model_init_parser.add_argument("--r-libs-user", default=os.environ.get("R_LIBS_USER"))
+    model_init_parser.add_argument("--r-libs-user", default=None)
+    model_init_parser.add_argument("--rscript-path", type=Path, default=None)
+    model_init_parser.add_argument("--dotnet-root", default=None)
     model_init_parser.add_argument("--model-id", required=True)
     model_init_parser.add_argument("--output", type=Path, default=None)
 
@@ -114,6 +143,18 @@ def main() -> int:
 
     arguments = parser.parse_args()
 
+    try:
+        return _dispatch(arguments)
+    except Exception as error:  # last-resort boundary: turn a bug into a message, not a traceback
+        print(
+            f"opentrials hit an unexpected internal error: {type(error).__name__}: {error}\n"
+            "This is likely a bug in OpenTrials itself, not your configuration -- please open "
+            "an issue against this project with the command you ran and this message."
+        )
+        return 3
+
+
+def _dispatch(arguments: argparse.Namespace) -> int:
     if arguments.command == "report":
         return _report(arguments)
     if arguments.command == "init":
@@ -188,16 +229,25 @@ def _validate(path: Path, schema: str | None) -> int:
 
 
 def _run(path: Path, schema: str | None, arguments: argparse.Namespace) -> int:
-    if arguments.r_libs_user is None:
-        print("Run unavailable: set --r-libs-user or R_LIBS_USER for the local ospsuite library.")
+    runtime = resolve_osp_runtime(
+        rscript_path=arguments.rscript_path,
+        dotnet_root=arguments.dotnet_root,
+        r_libs_user=arguments.r_libs_user,
+    )
+    if runtime.r_libs_user is None:
+        print(
+            "Run unavailable: set --r-libs-user, R_LIBS_USER, or r_libs_user in a config file "
+            "for the local ospsuite library."
+        )
         return 2
 
     if schema == PROJECT_SCHEMA:
-        return _run_project(path, arguments)
-    return _run_legacy_trial(path, arguments)
+        return _run_project(path, arguments, runtime)
+    return _run_legacy_trial(path, arguments, runtime)
 
 
-def _run_project(path: Path, arguments: argparse.Namespace) -> int:
+def _run_project(path: Path, arguments: argparse.Namespace, runtime: OspRuntimeConfig) -> int:
+    assert runtime.r_libs_user is not None  # _run already rejected the unset case
     try:
         project = Project.load(path)
     except ProjectConfigurationError as error:
@@ -219,7 +269,9 @@ def _run_project(path: Path, arguments: argparse.Namespace) -> int:
     try:
         run = project.run(
             output_root=arguments.output_root,
-            r_libs_user=arguments.r_libs_user,
+            r_libs_user=runtime.r_libs_user,
+            rscript_path=runtime.rscript_path,
+            dotnet_root=runtime.dotnet_root,
             events=renderer.on_event,
         )
     except (TrialConfigurationError, OSError, ValueError, RuntimeError) as error:
@@ -255,14 +307,15 @@ def _report(arguments: argparse.Namespace) -> int:
     return 0
 
 
-def _run_legacy_trial(path: Path, arguments: argparse.Namespace) -> int:
+def _run_legacy_trial(path: Path, arguments: argparse.Namespace, runtime: OspRuntimeConfig) -> int:
+    assert runtime.r_libs_user is not None  # _run already rejected the unset case
     try:
         trial = load_trial(path)
         started = time.monotonic()
         run_result = run_aciclovir_iv_engineering(
             trial,
             output_root=arguments.output_root,
-            r_libs_user=arguments.r_libs_user,
+            r_libs_user=runtime.r_libs_user,
             progress=lambda stage: print(
                 f"[✓] {stage.replace('_', ' ')} ({time.monotonic() - started:.1f}s)"
             ),

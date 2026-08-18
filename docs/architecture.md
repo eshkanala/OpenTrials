@@ -59,6 +59,31 @@ object.
 | Reporting | `reporting/` | Human-readable views over already-verified artifacts. Never a second analysis engine. |
 | CLI | `cli/` | A thin renderer over `sdk/`. No scientific logic. |
 
+## Schema versioning and compatibility
+
+Every persisted artifact and configuration document carries its own
+`schema`/`schema_version` (see `core.serialization.SchemaDocument`), and
+every loader that reads one — `config.project.load_project`,
+`config.trial.load_trial`, every OSP worker request/response, every
+artifact manifest — checks it with an exact-match comparison and raises
+if it doesn't match exactly. There is currently no tolerant/partial
+reader and no migration tooling: **a future schema version bump will make
+existing artifacts and configuration files written under the current
+version unreadable by the new code, with no automated upgrade path.**
+
+This is a deliberate, stated tradeoff for this stage of the project, not
+an oversight: strict-match rejection is what makes "verified" mean
+something (a manifest is either exactly what the code that reads it
+expects, or the read fails loudly) — silently tolerating a drifted schema
+would be a correctness risk, not a convenience. As OpenTrials' schemas
+stabilize toward a real 1.0 compatibility guarantee, this should become
+an explicit, tested migration policy (old-version readers, or versioned
+upgrade scripts) rather than staying an open question. Until then: do not
+assume a `runs/` or `populations/` directory produced by one tagged
+version will still validate against a later one, and pin your OpenTrials
+version if you need a persisted artifact tree to keep validating over
+time.
+
 ## Reading the codebase for the first time
 
 Start at `docs/quickstart.md`, run it, then read (in this order):

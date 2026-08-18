@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from opentrials.adapters.osp.engine import DEFAULT_DOTNET_ROOT, DEFAULT_FRAMEWORK_RSCRIPT
 from opentrials.events import EventSink, stage_progress_adapter
 from opentrials.models.capability import ModelCapabilityProfile
 from opentrials.orchestration.trial_execution import run_trial_execution
@@ -20,6 +21,8 @@ def run_trial(
     population_root: Path,
     output_root: Path,
     r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
     observation_schedule: ObservationSchedule | None = None,
     events: EventSink | None = None,
 ) -> TrialRun:
@@ -39,6 +42,8 @@ def run_trial(
         population_root=population_root,
         output_root=output_root,
         r_libs_user=r_libs_user,
+        rscript_path=rscript_path,
+        dotnet_root=dotnet_root,
         observation_schedule=observation_schedule,
         progress=stage_progress_adapter(events),
     )

@@ -15,6 +15,37 @@ has been run against actual OSP output — this page is not aspirational.
   `--r-libs-user`, or set it once as the `R_LIBS_USER` environment
   variable).
 
+**Platform note**: this project has only actually been run and verified on
+macOS (Apple Silicon). OpenTrials' own defaults for the `Rscript` binary
+and the .NET runtime root are compiled in against that one macOS layout.
+If yours differs — a different macOS install location, Linux, Windows, or
+an HPC module system — three overrides exist, checked in this order
+(most specific wins): a CLI flag, an environment variable, then a config
+file:
+
+| Setting        | CLI flag         | Environment variable      |
+| -------------- | ---------------- | -------------------------- |
+| Rscript path   | `--rscript-path` | `OPENTRIALS_RSCRIPT_PATH`  |
+| .NET root      | `--dotnet-root`  | `OPENTRIALS_DOTNET_ROOT`   |
+| R library path | `--r-libs-user`  | `R_LIBS_USER`               |
+
+For a setting you want to stop passing every time, put it in a config
+file: `.opentrials.yaml` in your working directory, `~/.config/opentrials/config.yaml`,
+or any path named by `OPENTRIALS_CONFIG`:
+
+```yaml
+rscript_path: /usr/lib/R/bin/Rscript
+dotnet_root: /usr/lib/dotnet
+r_libs_user: /home/researcher/R/library
+```
+
+These overrides are new and unit-tested (`config.runtime.resolve_osp_runtime`),
+but the resulting non-macOS *execution* path through real OSP has not
+itself been re-verified on Linux or Windows — if you hit a platform-specific
+OSP/R issue after pointing these at a real install, that is an OSP/R
+environment problem this project has not yet reproduced, not a silent
+failure of the override mechanism itself.
+
 ## Install
 
 ```bash

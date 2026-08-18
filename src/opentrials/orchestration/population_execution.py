@@ -42,6 +42,7 @@ from opentrials.adapters.osp import (
     resolve_population_execution_lineage,
 )
 from opentrials.adapters.osp.capability import osp_intervention_profile_from_capability
+from opentrials.adapters.osp.engine import DEFAULT_DOTNET_ROOT, DEFAULT_FRAMEWORK_RSCRIPT
 from opentrials.analysis.pk import PkEndpointResult, calculate_pk_endpoints
 from opentrials.compound.compound import Compound, CompoundIdentity
 from opentrials.compound.intervention import Dose, Intervention, Regimen
@@ -93,6 +94,8 @@ def run_population_execution(
     output_root: Path,
     r_libs_user: str,
     transport: Literal["json", "csv"] = "json",
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
     progress: ProgressCallback | None = None,
 ) -> PopulationExecutionRun:
     """Execute a registered model's pinned PKML over one whole verified OTPGEN population.
@@ -172,6 +175,8 @@ def run_population_execution(
         expected_administration_container=administration.administration_container_path,
         transport=transport,
         r_libs_user=r_libs_user,
+        rscript_path=rscript_path,
+        dotnet_root=dotnet_root,
     )
     _verify_population_raw_result(raw_result, run_id, population_manifest.actual_count)
     _mark("execute_population")
@@ -277,7 +282,7 @@ def run_population_execution(
             ),
             "endpoint_semantic_sha256": endpoint_manifest.endpoints.semantic_content_sha256,
             "verification_evidence_sha256": verification_hash,
-            "software_versions": _software_versions(r_libs_user),
+            "software_versions": _software_versions(r_libs_user, rscript_path, dotnet_root),
             "stage_seconds": stage_seconds,
             "artifacts": {
                 "population_manifest": "population_manifest.json",
@@ -385,9 +390,13 @@ def _execute_osp_population(
     expected_administration_container: str,
     transport: Literal["json", "csv"] = "json",
     r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
 ) -> RawSimulationResult:
     """Perform the external population execution; kept separate as the test seam."""
-    engine = OspSimulationEngine(r_libs_user=r_libs_user)
+    engine = OspSimulationEngine(
+        r_libs_user=r_libs_user, rscript_path=rscript_path, dotnet_root=dotnet_root
+    )
     method = engine.run_population_csv if transport == "csv" else engine.run_population
     return method(
         prepared_run,
@@ -451,8 +460,14 @@ def _selected_raw_rows(
     return selected
 
 
-def _software_versions(r_libs_user: str) -> dict[str, str]:
-    versions = OspSimulationEngine(r_libs_user=r_libs_user).version_info()
+def _software_versions(
+    r_libs_user: str,
+    rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
+    dotnet_root: str = DEFAULT_DOTNET_ROOT,
+) -> dict[str, str]:
+    versions = OspSimulationEngine(
+        r_libs_user=r_libs_user, rscript_path=rscript_path, dotnet_root=dotnet_root
+    ).version_info()
     return {**versions, "python": platform.python_version(), "platform": platform.platform()}
 
 
