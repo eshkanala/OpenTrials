@@ -1,0 +1,66 @@
+schema: opentrials.project
+schema_version: 1.0.0
+payload:
+  # The registered ModelCapabilityProfile this project executes through.
+  # See src/opentrials/models/profiles/aciclovir_iv.py for what it declares
+  # it can and cannot do. Omit this key entirely if exactly one model is
+  # registered -- the SDK resolves it automatically.
+  model_id: osp.aciclovir.vergin-1995-iv
+
+  trial:
+    trial_id: ACICLOVIR-DOSE-COMPARISON
+    title: Aciclovir IV dose-ranging comparison
+    question_of_interest: >-
+      How does simulated exposure differ across two prospectively assigned
+      IV dose arms?
+    population:
+      id: dose-comparison-example
+      size: 20
+      seed: 11
+      generator_version: "0.1.0"
+      age_range:
+        minimum: {value: 18, unit: year, value_type: ASSUMED}
+        maximum: {value: 65, unit: year, value_type: ASSUMED}
+      sexes: [FEMALE]
+    arms:
+      - arm_id: low
+        name: low
+        allocation: 0.5
+        intervention:
+          intervention_id: aciclovir-low
+          compound:
+            identity: {compound_id: aciclovir, preferred_name: Aciclovir}
+          regimen:
+            regimen_id: low-regimen
+            doses:
+              - amount: {value: 125, unit: mg, value_type: ASSUMED}
+                route: INTRAVENOUS
+                administration_time: {value: 0, unit: min, value_type: ASSUMED}
+                infusion_duration: {value: 10, unit: min, value_type: ASSUMED}
+      - arm_id: high
+        name: high
+        allocation: 0.5
+        intervention:
+          intervention_id: aciclovir-high
+          compound:
+            identity: {compound_id: aciclovir, preferred_name: Aciclovir}
+          regimen:
+            regimen_id: high-regimen
+            doses:
+              - amount: {value: 250, unit: mg, value_type: ASSUMED}
+                route: INTRAVENOUS
+                administration_time: {value: 0, unit: min, value_type: ASSUMED}
+                infusion_duration: {value: 10, unit: min, value_type: ASSUMED}
+    randomization: PARALLEL
+    endpoints:
+      - endpoint_id: plasma-concentration
+        endpoint_type: PK
+        measurement: plasma aciclovir concentration
+        time_window:
+          start: {value: 0, unit: h, value_type: ASSUMED}
+          end: {value: 24, unit: h, value_type: ASSUMED}
+        aggregation: RAW
+        missingness_rule: REPORT
+        analysis_method: PK endpoints
+        unit: umol/L
+    seed: 11

@@ -27,6 +27,7 @@ from opentrials.core import (
     ScientificValue,
     ValueType,
 )
+from opentrials.sdk import Project, load, run_population, run_trial
 
 __all__ = [
     "CategoricalPredicate",
@@ -44,8 +45,12 @@ __all__ = [
     "Evidence",
     "EvidenceSet",
     "EvidenceSourceType",
+    "Project",
     "ProvenanceActivityType",
     "ProvenanceRecord",
     "ScientificValue",
     "ValueType",
+    "load",
+    "run_population",
+    "run_trial",
 ]
