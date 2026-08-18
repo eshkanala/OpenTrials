@@ -1,5 +1,12 @@
 """Local run-artifact storage contracts."""
 
+from opentrials.storage.allocation import (
+    ALLOCATION_COLUMNS,
+    AllocationTableArtifact,
+    TrialArmAllocationArtifactManifest,
+    TrialArmAllocationArtifactStore,
+    semantic_allocation_hash,
+)
 from opentrials.storage.cohort_comparisons import (
     COMPARISON_COLUMNS,
     GROUP_SUMMARY_COLUMNS,
@@ -98,6 +105,11 @@ from opentrials.storage.validation import (
 )
 
 __all__ = [
+    "ALLOCATION_COLUMNS",
+    "AllocationTableArtifact",
+    "TrialArmAllocationArtifactManifest",
+    "TrialArmAllocationArtifactStore",
+    "semantic_allocation_hash",
     "CONCENTRATION_TIME_COLUMNS",
     "COMPARISON_COLUMNS",
     "GROUP_SUMMARY_COLUMNS",

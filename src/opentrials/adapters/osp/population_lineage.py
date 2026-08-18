@@ -21,6 +21,8 @@ def resolve_population_execution_lineage(
     population_columns: Sequence[str],
     population_rows: Sequence[Mapping[str, object]],
     result_individual_ids: Sequence[int],
+    *,
+    require_full_coverage: bool = True,
 ) -> dict[str, PkEndpointSubjectLineage]:
     """Return one ``PkEndpointSubjectLineage`` per OSP result IndividualId.
 
@@ -28,10 +30,16 @@ def resolve_population_execution_lineage(
     verified table backing ``population_manifest`` (for example from
     ``PopulationArtifactStore.verify_population()`` plus a Parquet read of
     that same artifact); this function performs no population verification
-    of its own. It requires the OSP result's IndividualId set to equal the
-    population table's IndividualId set exactly -- no extra IDs, none
-    missing -- since a partial population execution result would otherwise
-    silently under-represent the population in any later cohort comparison.
+    of its own. Every result IndividualId must be found in the population
+    table -- no extras, ever. By default (``require_full_coverage=True``,
+    the whole-population execution case) every population row must also
+    appear in the result, since a partial result would otherwise silently
+    under-represent the population in any later cohort comparison. Pass
+    ``require_full_coverage=False`` only when the caller deliberately
+    executed a verified subset of ``population_rows`` (for example one
+    trial arm's allocated participants out of the full population) and
+    lineage must still resolve against the *full* table so
+    ``source_row_index`` stays consistent with the rest of the trial.
     """
     if "IndividualId" not in population_columns:
         raise ValueError(
@@ -59,12 +67,13 @@ def resolve_population_execution_lineage(
             "OSP execution result contains IndividualId(s) absent from the verified population "
             f"table: {unmatched!r}."
         )
-    missing = sorted(population_id_set - result_id_set)
-    if missing:
-        raise ValueError(
-            "Population row IndividualId(s) are missing from the OSP execution result: "
-            f"{missing!r}."
-        )
+    if require_full_coverage:
+        missing = sorted(population_id_set - result_id_set)
+        if missing:
+            raise ValueError(
+                "Population row IndividualId(s) are missing from the OSP execution result: "
+                f"{missing!r}."
+            )
 
     lineage: dict[str, PkEndpointSubjectLineage] = {}
     for individual_id in result_ids:
