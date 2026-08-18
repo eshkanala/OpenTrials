@@ -27,6 +27,13 @@ from opentrials.adapters.osp.intervention import (
     OspInterventionTranslator,
     OspParameterAssignment,
 )
+from opentrials.adapters.osp.physiology_targets import (
+    OSP_PHYSIOLOGY_TARGET_COLUMNS,
+    RENAL_GLOMERULAR_FILTRATION_RATE,
+    UnsupportedPhysiologyTargetError,
+    physiology_coverage_for,
+    resolve_osp_physiology_column,
+)
 from opentrials.adapters.osp.population import (
     OspDeterminismLevel,
     OspHumanPopulation,
@@ -50,6 +57,11 @@ from opentrials.adapters.osp.uncertainty import (
 __all__ = [
     "ACICLOVIR_IV_DOSE_TARGET",
     "ACICLOVIR_IV_MODEL_SHA256",
+    "OSP_PHYSIOLOGY_TARGET_COLUMNS",
+    "RENAL_GLOMERULAR_FILTRATION_RATE",
+    "UnsupportedPhysiologyTargetError",
+    "physiology_coverage_for",
+    "resolve_osp_physiology_column",
     "osp_population_field_catalog",
     "OspDeterminismLevel",
     "OspUncertaintyAssignment",

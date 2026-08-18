@@ -42,6 +42,13 @@ from opentrials.storage.observed import (
     ObservedDatasetArtifactManifest,
     semantic_observations_hash,
 )
+from opentrials.storage.physiology import (
+    PHYSIOLOGY_POPULATION_ID_PATTERN,
+    PhysiologyPopulationArtifactManifest,
+    PhysiologyPopulationArtifactStore,
+    PhysiologyPopulationTableArtifact,
+    PhysiologyValueSummary,
+)
 from opentrials.storage.populations import (
     PopulationArtifactManifest,
     PopulationArtifactStore,
@@ -124,6 +131,11 @@ __all__ = [
     "ALLOCATION_COLUMNS",
     "ARM_SUMMARY_COLUMNS",
     "PAIRWISE_COMPARISON_COLUMNS",
+    "PHYSIOLOGY_POPULATION_ID_PATTERN",
+    "PhysiologyPopulationArtifactManifest",
+    "PhysiologyPopulationArtifactStore",
+    "PhysiologyPopulationTableArtifact",
+    "PhysiologyValueSummary",
     "TRIAL_RUN_ID_PATTERN",
     "AllocationTableArtifact",
     "ArmComparisonArtifactManifest",
