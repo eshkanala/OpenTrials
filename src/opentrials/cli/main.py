@@ -24,6 +24,12 @@ from opentrials.cli.progress import ProgressRenderer
 from opentrials.config import TrialConfigurationError, load_trial
 from opentrials.config.project import ProjectConfigurationError
 from opentrials.orchestration import run_aciclovir_iv_engineering
+from opentrials.reporting import (
+    build_population_report,
+    build_trial_report,
+    render_html,
+    render_markdown,
+)
 from opentrials.sdk.project import Project
 
 PROJECT_SCHEMA = "opentrials.project"
@@ -59,9 +65,25 @@ def main() -> int:
         "--verbose", action="store_true", help="Print every event's detail, not just its stage."
     )
 
-    arguments = parser.parse_args()
-    schema = _sniff_schema(arguments.config)
+    report = commands.add_parser(
+        "report", help="Render a human-readable report from an already-executed run directory."
+    )
+    report.add_argument("run_directory", type=Path)
+    report.add_argument(
+        "--population-root",
+        type=Path,
+        required=True,
+        help="The population artifact root the run was executed against.",
+    )
+    report.add_argument("--format", choices=("markdown", "html"), default="markdown")
+    report.add_argument("--output", type=Path, default=None)
 
+    arguments = parser.parse_args()
+
+    if arguments.command == "report":
+        return _report(arguments)
+
+    schema = _sniff_schema(arguments.config)
     if arguments.command == "validate":
         return _validate(arguments.config, schema)
     if arguments.command == "run":
@@ -151,6 +173,28 @@ def _run_project(path: Path, arguments: argparse.Namespace) -> int:
     print()
     print(run.summary())
     print(f"\nRun directory: {run.run_directory}")
+    return 0
+
+
+def _report(arguments: argparse.Namespace) -> int:
+    run_directory: Path = arguments.run_directory
+    population_root: Path = arguments.population_root
+    is_trial = (run_directory / "trial_run").is_dir()
+    try:
+        data = (
+            build_trial_report(run_directory, population_root)
+            if is_trial
+            else build_population_report(run_directory, population_root)
+        )
+    except (OSError, ValueError, KeyError) as error:
+        print(f"Report failed: could not verify this run: {error}")
+        return 1
+
+    rendered = render_html(data) if arguments.format == "html" else render_markdown(data)
+    default_name = "report.html" if arguments.format == "html" else "report.md"
+    output_path = arguments.output or Path(default_name)
+    output_path.write_text(rendered, encoding="utf-8")
+    print(f"Report written: {output_path}")
     return 0
 
 

@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict
 from opentrials.models.capability import ModelCapabilityProfile
 from opentrials.orchestration.population_execution import PopulationExecutionRun
 from opentrials.orchestration.trial_execution import ArmExecutionResult, TrialExecutionRun
+from opentrials.reporting.data import ReportData
 from opentrials.storage.allocation import TrialArmAllocationArtifactStore
 from opentrials.storage.arm_comparison_artifacts import ArmComparisonArtifactStore
 from opentrials.storage.endpoints import PkEndpointArtifactStore
@@ -77,6 +78,8 @@ class Run(Protocol):
     def summary(self) -> str: ...
 
     def verify(self) -> bool: ...
+
+    def report(self) -> ReportData: ...
 
 
 class PopulationArtifacts:
@@ -154,6 +157,14 @@ class PopulationRun:
         self.artifacts.population_store.verify_population(self.population.generation_id)
         self.artifacts.endpoint_store.verify_endpoints(self.artifacts.endpoint_id)
         return True
+
+    def report(self) -> ReportData:
+        """Build a report, re-verifying the whole chain from disk -- see reporting.build."""
+        from opentrials.reporting.build import build_population_report
+
+        return build_population_report(
+            self.run_directory, self.artifacts.population_store.root
+        )
 
 
 class TrialArtifacts:
@@ -251,6 +262,12 @@ class TrialRun:
             comparison_store=self.artifacts.comparison_store,
         )
         return True
+
+    def report(self) -> ReportData:
+        """Build a report, re-verifying the whole chain from disk -- see reporting.build."""
+        from opentrials.reporting.build import build_trial_report
+
+        return build_trial_report(self.run_directory, self.artifacts.population_store.root)
 
 
 def _model_summary(profile: ModelCapabilityProfile) -> ModelSummary:
