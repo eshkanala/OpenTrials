@@ -61,7 +61,9 @@ def build_population(tmp_path: Path) -> Path:
     return root
 
 
-def fake_execution(*, prepared_run: object, **_: object) -> RawSimulationResult:
+def fake_execution(
+    *, prepared_run: object, population_rows: tuple[dict[str, object], ...], **_: object
+) -> RawSimulationResult:
     rows = []
     for individual_id, cmax in ((0, 10.0), (1, 20.0), (2, 30.0)):
         for time, value in ((0, cmax / 2), (10, cmax)):
@@ -74,6 +76,14 @@ def fake_execution(*, prepared_run: object, **_: object) -> RawSimulationResult:
                     "paths": TOTAL_PLASMA_PATH,
                 }
             )
+    # Echo the exact GFR value the caller sent for each individual, as the
+    # real R worker would after reconstructing the population and reading
+    # it back -- proving the readback-verification step actually checks
+    # something rather than trivially passing.
+    population_readback = [
+        {"IndividualId": row["IndividualId"], GFR_COLUMN: row[GFR_COLUMN]}
+        for row in population_rows
+    ]
     return RawSimulationResult(
         run_id=prepared_run.run_id,  # type: ignore[attr-defined]
         engine_id="osp",
@@ -87,6 +97,7 @@ def fake_execution(*, prepared_run: object, **_: object) -> RawSimulationResult:
                 "solver_executed": True,
                 "parameter_assignments": [{"verified": True}] * 3,
             },
+            "population_readback": population_readback,
             "raw_result_rows": rows,
         },
     )

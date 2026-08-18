@@ -39,6 +39,7 @@ from opentrials.adapters.osp import (
     OspCompoundMapping,
     OspInterventionProfile,
     OspInterventionTranslator,
+    OspOutputInterval,
     OspParameterAssignment,
     OspSimulationEngine,
     physiology_coverage_for,
@@ -51,7 +52,7 @@ from opentrials.compound.intervention import Dose, Intervention, Regimen, Route
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import SchemaDocument, document, sha256
 from opentrials.models.manifest import Applicability, ModelManifest, ModelType
-from opentrials.models.package import ModelPackage
+from opentrials.models.package import SHA256_PATTERN, ModelPackage
 from opentrials.patient.population import PopulationSpec
 from opentrials.physiology.overrides import PhysiologicalStateOverride
 from opentrials.simulation.engine import PreparedRun, RawSimulationResult
@@ -73,6 +74,7 @@ from opentrials.trials.endpoints import (
     MissingnessRule,
     TimeWindow,
 )
+from opentrials.trials.schedule import ObservationSchedule
 from opentrials.trials.trial import RandomizationType, Trial, TrialArm
 
 PKML_PATH = Path("/Users/eshkanala/Library/R/arm64/4.6/library/ospsuite/extdata/Aciclovir.pkml")
@@ -97,6 +99,14 @@ class AciclovirIvPhysiologyPopulationRun(BaseModel):
     source_generation_id: str = Field(pattern=r"^OTPGEN-[A-Za-z0-9_-]+$")
     population_count: int = Field(gt=0)
     endpoints: tuple[PkEndpointResult, ...] = Field(min_length=1)
+    physiology_state_verified: bool
+    observation_schedule_verified: bool | None = None
+    result_id: str = Field(pattern=r"^OTRES-[A-Za-z0-9_-]+$")
+    result_semantic_sha256: str = Field(pattern=SHA256_PATTERN)
+    endpoint_id: str = Field(pattern=r"^OTPK-[A-Za-z0-9_-]+$")
+    endpoint_semantic_sha256: str = Field(pattern=SHA256_PATTERN)
+    raw_response_sha256: str = Field(pattern=SHA256_PATTERN)
+    execution_verification_sha256: str = Field(pattern=SHA256_PATTERN)
 
 
 def build_physiology_population(
@@ -148,6 +158,7 @@ def run_aciclovir_iv_physiology_population(
     dose_mg: float,
     output_root: Path,
     r_libs_user: str,
+    observation_schedule: ObservationSchedule | None = None,
     progress: ProgressCallback | None = None,
 ) -> AciclovirIvPhysiologyPopulationRun:
     """Execute the pinned Aciclovir IV model over one verified OTPHYS population.
@@ -156,7 +167,11 @@ def run_aciclovir_iv_physiology_population(
     ``population_root`` must contain its declared source OTPGEN artifact.
     Both are independently re-verified here -- the OSP worker performs no
     trust decision of its own, and endpoint lineage is resolved against the
-    re-verified *original* OTPGEN table, not the OTPHYS table.
+    re-verified *original* OTPGEN table, not the OTPHYS table. The declared
+    physiology-state column is also read back from the actual reconstructed
+    OSP population (not merely the request payload) and verified to match
+    what OTPHYS declared, exactly the same "verify rather than trust"
+    discipline used for dose and observation-schedule execution.
     """
     _notify(progress, "verifying_physiology_population")
     physiology_store = PhysiologyPopulationArtifactStore(physiology_root)
@@ -199,6 +214,17 @@ def run_aciclovir_iv_physiology_population(
         document("opentrials.physiology-population-artifact", physiology_manifest),
     )
 
+    output_intervals = (
+        _to_osp_output_intervals(observation_schedule)
+        if observation_schedule is not None
+        else ()
+    )
+    declared_times_min = (
+        _declared_times_minutes(observation_schedule)
+        if observation_schedule is not None
+        else ()
+    )
+
     _notify(progress, "executing_population")
     prepared = PreparedRun(
         run_id=run_id,
@@ -212,14 +238,24 @@ def run_aciclovir_iv_physiology_population(
         population_rows=executed_rows,
         expected_population_count=physiology_manifest.individuals.rows,
         assignments=translation.plan.assignments,
+        output_intervals=output_intervals,
+        population_readback_columns=(physiology_manifest.osp_parameter_path,),
         r_libs_user=r_libs_user,
     )
     _verify_population_raw_result(raw_result, run_id, physiology_manifest.individuals.rows)
+    physiology_state_verified = _verify_physiology_state_readback(
+        raw_result, executed_rows, physiology_manifest.osp_parameter_path
+    )
+    observation_schedule_verified: bool | None = None
+    if observation_schedule is not None:
+        _verify_output_schedule(raw_result, declared_times_min)
+        observation_schedule_verified = True
 
     _notify(progress, "persisting_raw")
     raw_document = document("opentrials.osp-population-response", raw_result)
     raw_path = run_directory / "raw" / "osp_response.json"
     _write_document(raw_path, raw_document)
+    raw_response_sha256 = raw_document.sha256()
     verification_hash = sha256(raw_result.payload["execution_verification"])
 
     rows = _selected_raw_rows(raw_result.payload)
@@ -302,6 +338,8 @@ def run_aciclovir_iv_physiology_population(
             ),
             "endpoint_semantic_sha256": endpoint_manifest.endpoints.semantic_content_sha256,
             "verification_evidence_sha256": verification_hash,
+            "physiology_state_verified": physiology_state_verified,
+            "observation_schedule_verified": observation_schedule_verified,
             "software_versions": _software_versions(r_libs_user),
             "artifacts": {
                 "physiology_population_manifest": "physiology_population_manifest.json",
@@ -323,6 +361,14 @@ def run_aciclovir_iv_physiology_population(
         source_generation_id=source_generation_id,
         population_count=physiology_manifest.individuals.rows,
         endpoints=endpoints,
+        physiology_state_verified=physiology_state_verified,
+        observation_schedule_verified=observation_schedule_verified,
+        result_id=result_id,
+        result_semantic_sha256=result_manifest.concentration_time.semantic_content_sha256,
+        endpoint_id=endpoint_id,
+        endpoint_semantic_sha256=endpoint_manifest.endpoints.semantic_content_sha256,
+        raw_response_sha256=raw_response_sha256,
+        execution_verification_sha256=verification_hash,
     )
 
 
@@ -442,6 +488,8 @@ def _execute_osp_population(
     population_rows: tuple[Mapping[str, object], ...],
     expected_population_count: int,
     assignments: tuple[OspParameterAssignment, ...],
+    output_intervals: tuple[OspOutputInterval, ...] = (),
+    population_readback_columns: tuple[str, ...] = (),
     r_libs_user: str,
 ) -> RawSimulationResult:
     """Perform the external population execution; kept separate as the test seam."""
@@ -454,7 +502,114 @@ def _execute_osp_population(
         expected_pkml_sha256=PKML_SHA256,
         expected_administration_container=IV_CONTAINER,
         parameter_assignments=assignments,
+        output_intervals=output_intervals,
+        population_readback_columns=population_readback_columns,
     )
+
+
+def _to_osp_output_intervals(schedule: ObservationSchedule) -> tuple[OspOutputInterval, ...]:
+    """Convert a declared ObservationSchedule into OSP output-grid windows (minutes)."""
+    return tuple(
+        OspOutputInterval(
+            start_time=window.start.to("min").value,
+            end_time=window.end.to("min").value,
+            resolution=1.0 / window.interval.to("min").value,
+            interval_name=f"{schedule.schedule_id}-{index}",
+        )
+        for index, window in enumerate(schedule.windows)
+    )
+
+
+def _declared_times_minutes(schedule: ObservationSchedule) -> tuple[float, ...]:
+    """The schedule's declared sample times in minutes, matching the OSP time axis."""
+    times: set[float] = set()
+    for window in schedule.windows:
+        times.update(window.declared_times("min"))
+    return tuple(sorted(times))
+
+
+def _verify_output_schedule(
+    result: RawSimulationResult, declared_times_min: Sequence[float]
+) -> None:
+    """Reject a run whose solver output times do not exactly match the declared schedule."""
+    if result.payload.get("output_schedule_applied") is not True:
+        raise ValueError("OSP execution did not apply the declared observation schedule.")
+    observed = result.payload.get("observed_output_times")
+    if not isinstance(observed, Sequence) or isinstance(observed, (str, bytes)):
+        raise ValueError("OSP execution did not report observed output times.")
+    observed_sorted = sorted(float(value) for value in observed)
+    declared_sorted = sorted(declared_times_min)
+    if len(observed_sorted) != len(declared_sorted) or any(
+        abs(a - b) > 1e-6 for a, b in zip(observed_sorted, declared_sorted, strict=True)
+    ):
+        raise ValueError(
+            "OSP solver output times do not match the declared observation schedule: "
+            f"observed {observed_sorted!r} vs. declared {declared_sorted!r}."
+        )
+
+
+def _verify_physiology_state_readback(
+    result: RawSimulationResult,
+    executed_rows: tuple[Mapping[str, object], ...],
+    osp_parameter_path: str,
+    *,
+    tolerance: float = 1e-8,
+) -> bool:
+    """Confirm the *actually reconstructed* OSP population carries the declared state.
+
+    Reads ``population_readback`` -- built from ``populationToDataFrame()``
+    on the real ``Population`` object the worker executed, not an echo of
+    the request -- and checks every individual's value for
+    ``osp_parameter_path`` against what OTPHYS declared for that same
+    individual. Raises rather than silently trusting the request on any
+    missing or mismatched subject.
+    """
+    readback = result.payload.get("population_readback")
+    if not isinstance(readback, Sequence) or isinstance(readback, (str, bytes)) or not readback:
+        raise ValueError(
+            "OSP execution did not report a physiology-state population read-back."
+        )
+    declared_by_id: dict[int, float] = {}
+    for row in executed_rows:
+        raw_id = row["IndividualId"]
+        raw_value = row[osp_parameter_path]
+        if isinstance(raw_id, bool) or not isinstance(raw_id, int):
+            raise ValueError("Executed population row has a non-integer IndividualId.")
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise ValueError("Executed population row has a non-numeric physiology-state value.")
+        declared_by_id[raw_id] = float(raw_value)
+
+    readback_ids: set[int] = set()
+    for entry in readback:
+        if not isinstance(entry, Mapping):
+            raise ValueError("Physiology-state population read-back row is malformed.")
+        individual_id = entry.get("IndividualId")
+        if isinstance(individual_id, bool) or not isinstance(individual_id, int):
+            raise ValueError("Physiology-state population read-back row has no IndividualId.")
+        actual_value = entry.get(osp_parameter_path)
+        if isinstance(actual_value, bool) or not isinstance(actual_value, (int, float)):
+            raise ValueError(
+                f"Physiology-state population read-back is missing {osp_parameter_path!r}."
+            )
+        expected_value = declared_by_id.get(individual_id)
+        if expected_value is None:
+            raise ValueError(
+                f"Physiology-state population read-back has an unexpected IndividualId: "
+                f"{individual_id}."
+            )
+        if abs(float(actual_value) - expected_value) > tolerance:
+            raise ValueError(
+                f"Physiology-state read-back for individual {individual_id} does not match "
+                f"the declared OTPHYS value: expected {expected_value}, executed {actual_value}."
+            )
+        readback_ids.add(individual_id)
+
+    if readback_ids != set(declared_by_id):
+        raise ValueError(
+            "Physiology-state population read-back does not cover exactly the executed "
+            "population."
+        )
+    return True
 
 
 def _verify_population_raw_result(

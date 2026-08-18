@@ -231,6 +231,7 @@ class OspSimulationEngine:
         expected_administration_container: str | None = None,
         parameter_assignments: tuple[OspParameterAssignment, ...] = (),
         output_intervals: tuple[OspOutputInterval, ...] = (),
+        population_readback_columns: tuple[str, ...] = (),
     ) -> RawSimulationResult:
         """Reconstruct a verified population and batch-run it through PBPK.
 
@@ -243,7 +244,11 @@ class OspSimulationEngine:
         solver's output time grid explicitly (verified via
         ``addOutputInterval`` -- see HANDOFF v0.5-B); when empty (the
         default), the solver's own default dense grid is used unchanged,
-        exactly as before this parameter existed.
+        exactly as before this parameter existed. ``population_readback_columns``,
+        when supplied, asks the worker to read the named columns back from
+        the actual reconstructed ``Population`` object (not merely echo the
+        request) -- see HANDOFF v0.6-B; empty by default, unchanged from
+        before this parameter existed.
         """
         package = prepared_run.model_packages[0]
         pkml_path = _file_uri_to_path(package.artifact_uri)
@@ -267,6 +272,8 @@ class OspSimulationEngine:
                 }
                 for interval in output_intervals
             ]
+        if population_readback_columns:
+            payload["population_readback_columns"] = list(population_readback_columns)
         if parameter_assignments:
             if expected_administration_container is None:
                 raise ValueError("Verified assignments require an administration container.")

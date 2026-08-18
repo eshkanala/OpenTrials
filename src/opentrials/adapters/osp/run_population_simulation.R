@@ -227,9 +227,35 @@ run_worker <- function() {
       )
     }
   )
-  reconstructed_count <- nrow(populationToDataFrame(population))
+  reconstructed_table <- populationToDataFrame(population)
+  reconstructed_count <- nrow(reconstructed_table)
   if (reconstructed_count != payload$expected_population_count) {
     stop("Reconstructed population individual count does not match expected_population_count.", call. = FALSE)
+  }
+
+  # Optional read-back of specific population-table columns from the actual
+  # reconstructed Population object (not merely the request payload) --
+  # lets Python verify a declared physiological-state override was really
+  # applied to the population that was executed, rather than trusting the
+  # request. Empty/absent by default, so every existing caller is unchanged.
+  readback_columns <- payload$population_readback_columns
+  population_readback <- NULL
+  if (!is.null(readback_columns) && length(readback_columns) > 0) {
+    readback_columns <- unlist(readback_columns, use.names = FALSE)
+    missing_readback <- setdiff(readback_columns, names(reconstructed_table))
+    if (length(missing_readback) > 0) {
+      stop(
+        sprintf(
+          "population_readback_columns not present in the reconstructed population: %s",
+          paste(missing_readback, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
+    select_columns <- c("IndividualId", readback_columns)
+    population_readback <- lapply(seq_len(nrow(reconstructed_table)), function(index) {
+      as.list(reconstructed_table[index, select_columns, drop = FALSE])
+    })
   }
 
   simulation <- loadSimulation(payload$pkml_path)
@@ -365,6 +391,7 @@ run_worker <- function() {
     result_individual_ids = result_individual_ids,
     output_schedule_applied = schedule_applied,
     observed_output_times = observed_output_times,
+    population_readback = population_readback,
     execution_verification = verification,
     raw_result_rows = result_rows
   ))
