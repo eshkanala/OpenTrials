@@ -124,6 +124,19 @@ class DataConnectorRunResult(BaseModel):
     dataset: ObservedDataset
 
 
+class IneligibleEvidenceCandidateError(ValueError):
+    """Raised when ``normalize()`` discovers a candidate cannot be honestly represented.
+
+    Distinct from a bug: this is a connector reporting that the source data
+    itself does not fit OpenTrials' domain model in a way that would require
+    inventing a value to paper over (e.g. a weight-normalized dose with no
+    recoverable body weight, which ``compound.intervention.Dose`` correctly
+    refuses since it requires mass dimensions). Raising this rather than
+    forcing a workaround keeps the "nothing invented" discipline intact even
+    when a candidate does not clear the gate.
+    """
+
+
 class DataConnector(Protocol):
     """The generic shape every evidence connector implements.
 
