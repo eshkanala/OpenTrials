@@ -33,6 +33,7 @@ opentrials = "opentrials.cli.main:main"
 "src/opentrials/adapters/osp/run_population_simulation.R" = "opentrials/adapters/osp/run_population_simulation.R"
 "src/opentrials/adapters/osp/run_population_simulation_csv.R" = "opentrials/adapters/osp/run_population_simulation_csv.R"
 "src/opentrials/adapters/osp/read_observed_dataset.R" = "opentrials/adapters/osp/read_observed_dataset.R"
+"src/opentrials/adapters/osp/inspect_model.R" = "opentrials/adapters/osp/inspect_model.R"
 
 [project.optional-dependencies]
 dev = [

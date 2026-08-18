@@ -16,6 +16,10 @@ from opentrials.adapters.osp.engine import (
     OspWorkerError,
 )
 from opentrials.adapters.osp.generation import OspPopulationGenerationResult, OspPopulationGenerator
+from opentrials.adapters.osp.inspect_model import (
+    OspModelInspectionWorkerError,
+    inspect_model_pkml,
+)
 from opentrials.adapters.osp.intervention import (
     InterventionFeatureStatus,
     InterventionTranslationError,
@@ -90,10 +94,12 @@ __all__ = [
     "OspPopulationTranslation",
     "OspPopulationTranslator",
     "OspExecutionVerificationError",
+    "OspModelInspectionWorkerError",
     "OspObservedDataWorkerError",
     "OspOutputInterval",
     "OspSimulationEngine",
     "OspWorkerError",
+    "inspect_model_pkml",
     "read_observed_dataset_pkml",
     "PopulationFeatureStatus",
     "PopulationTranslationReport",

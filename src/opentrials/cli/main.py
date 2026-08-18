@@ -20,6 +20,7 @@ from typing import Any
 
 import yaml
 
+from opentrials.cli import model_commands
 from opentrials.cli.progress import ProgressRenderer
 from opentrials.config import TrialConfigurationError, load_trial
 from opentrials.config.project import ProjectConfigurationError
@@ -31,6 +32,7 @@ from opentrials.reporting import (
     render_markdown,
 )
 from opentrials.sdk.project import Project
+from opentrials.sdk.project_scaffold import generate_project_scaffold
 
 PROJECT_SCHEMA = "opentrials.project"
 
@@ -78,10 +80,52 @@ def main() -> int:
     report.add_argument("--format", choices=("markdown", "html"), default="markdown")
     report.add_argument("--output", type=Path, default=None)
 
+    init = commands.add_parser(
+        "init", help="Generate a working, commented project.yaml to get started."
+    )
+    init.add_argument("--output", type=Path, default=Path("project.yaml"))
+
+    model_parser = commands.add_parser(
+        "model", help="Discover and scaffold a model from a PKML file."
+    )
+    model_commands_parser = model_parser.add_subparsers(dest="model_command", required=True)
+    model_inspect = model_commands_parser.add_parser(
+        "inspect", help="Discover a PKML file's structure (read-only, no capability claims)."
+    )
+    model_inspect.add_argument("pkml_path", type=Path)
+    model_inspect.add_argument("--r-libs-user", default=os.environ.get("R_LIBS_USER"))
+    model_init_parser = model_commands_parser.add_parser(
+        "init", help="Generate a reviewable ModelCapabilityProfile scaffold from discovery."
+    )
+    model_init_parser.add_argument("pkml_path", type=Path)
+    model_init_parser.add_argument("--r-libs-user", default=os.environ.get("R_LIBS_USER"))
+    model_init_parser.add_argument("--model-id", required=True)
+    model_init_parser.add_argument("--output", type=Path, default=None)
+
+    models_parser = commands.add_parser(
+        "models", help="Inspect the local registered-model registry."
+    )
+    models_commands_parser = models_parser.add_subparsers(dest="models_command", required=True)
+    models_commands_parser.add_parser("list", help="List every registered model.")
+    models_show_parser = models_commands_parser.add_parser(
+        "show", help="Show one registered model's full declared capability."
+    )
+    models_show_parser.add_argument("model_id")
+
     arguments = parser.parse_args()
 
     if arguments.command == "report":
         return _report(arguments)
+    if arguments.command == "init":
+        return _init(arguments)
+    if arguments.command == "model":
+        if arguments.model_command == "inspect":
+            return model_commands.model_inspect(arguments)
+        return model_commands.model_init(arguments)
+    if arguments.command == "models":
+        if arguments.models_command == "list":
+            return model_commands.models_list(arguments)
+        return model_commands.models_show(arguments)
 
     schema = _sniff_schema(arguments.config)
     if arguments.command == "validate":
@@ -89,6 +133,19 @@ def main() -> int:
     if arguments.command == "run":
         return _run(arguments.config, schema, arguments)
     return 2
+
+
+def _init(arguments: argparse.Namespace) -> int:
+    output_path: Path = arguments.output
+    if output_path.exists():
+        print(f"Refusing to overwrite an existing file: {output_path}")
+        return 1
+    output_path.write_text(generate_project_scaffold(filename=output_path.name), encoding="utf-8")
+    print(f"Project created: {output_path}\n")
+    print("Next:")
+    print(f"  opentrials validate {output_path}")
+    print(f"  opentrials run {output_path} --r-libs-user <path to your ospsuite R library>")
+    return 0
 
 
 def _validate(path: Path, schema: str | None) -> int:
