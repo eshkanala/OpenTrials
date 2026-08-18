@@ -16,6 +16,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+RENAL_GLOMERULAR_FILTRATION_RATE = "renal.glomerular_filtration_rate"
+"""The one physiology target vocabulary this project has verified so far.
+
+This is an OpenTrials-level concept identifier, not engine- or model-
+specific -- any registered model's ``ModelCapabilityProfile`` may declare
+support for it (see ``PhysiologyTargetCapability.target``), each mapping it
+to its own engine parameter path. See HANDOFF v0.6-A for the capability
+probe that first verified it.
+"""
+
 
 class PhysiologicalStateOverride(BaseModel):
     """A declared, evidence-attached perturbation of one physiological target.

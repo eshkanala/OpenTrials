@@ -1,4 +1,4 @@
-"""Prospective multi-arm Aciclovir IV trial execution with preserved lineage.
+"""Prospective multi-arm trial execution with preserved lineage, generic over any model.
 
 verified OTPGEN population
     -> deterministic OTALLOC arm allocation (largest-remainder + seeded shuffle)
@@ -7,13 +7,18 @@ verified OTPGEN population
     -> lineage resolved against the FULL population, not the arm subset
     -> per-arm lineage-aware OTRES/OTPK v2 artifacts
 
-This is the prospective sibling of ``orchestration.aciclovir_iv_population``:
+This is the prospective sibling of ``orchestration.population_execution``:
 instead of one dose applied to the whole population, this executes a real
 ``Trial`` with two or more declared arms, each receiving its own verified
 intervention against its own reproducibly allocated subset of participants.
 No repeated/multi-dose regimen support is implied or added here -- each arm
-remains exactly one verified single IV infusion, matching the one
-administration target this project has actually verified against OSP.
+remains exactly one verified single infusion, matching the one
+administration target a registered model declares it has actually verified
+against OSP.
+
+v0.7-B: this module used to be ``orchestration.aciclovir_iv_trial``, with
+the pinned Aciclovir model hard-coded. Every model-specific value now comes
+from a ``ModelCapabilityProfile`` passed in by the caller.
 """
 
 from __future__ import annotations
@@ -29,20 +34,17 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field
 
 from opentrials.adapters.osp import (
-    OspAdministrationTarget,
-    OspCompoundMapping,
-    OspInterventionProfile,
     OspInterventionTranslator,
     OspOutputInterval,
     OspParameterAssignment,
     OspSimulationEngine,
     resolve_population_execution_lineage,
 )
+from opentrials.adapters.osp.capability import osp_intervention_profile_from_capability
 from opentrials.analysis.pk import PkEndpointResult, calculate_pk_endpoints
-from opentrials.compound.intervention import Intervention, Route
+from opentrials.compound.intervention import Intervention
 from opentrials.core.serialization import SchemaDocument, document, sha256
-from opentrials.models.manifest import Applicability, ModelManifest, ModelType
-from opentrials.models.package import ModelPackage
+from opentrials.models.capability import AdministrationCapability, ModelCapabilityProfile
 from opentrials.simulation.engine import PreparedRun, RawSimulationResult
 from opentrials.storage.allocation import TrialArmAllocationArtifactStore
 from opentrials.storage.arm_comparison_artifacts import ArmComparisonArtifactStore
@@ -63,11 +65,6 @@ from opentrials.trials.arm_comparison import compare_trial_arms
 from opentrials.trials.schedule import ObservationSchedule
 from opentrials.trials.trial import RandomizationType, Trial
 
-PKML_PATH = Path("/Users/eshkanala/Library/R/arm64/4.6/library/ospsuite/extdata/Aciclovir.pkml")
-PKML_SHA256 = "efbc7a3004534780bab46ca75a15dfd37ee271d4b8eec8c304b7ef5a2f083de7"
-IV_CONTAINER = "Events|IV 250mg 10min|"
-TOTAL_PLASMA_PATH = "Organism|PeripheralVenousBlood|Aciclovir|Plasma (Peripheral Venous Blood)"
-
 ProgressCallback = Callable[[str], None]
 
 
@@ -86,7 +83,7 @@ class ArmExecutionResult(BaseModel):
     endpoints: tuple[PkEndpointResult, ...] = Field(min_length=1)
 
 
-class AciclovirIvTrialRun(BaseModel):
+class TrialExecutionRun(BaseModel):
     """Locations and per-arm outcomes from one immutable multi-arm trial run."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -102,24 +99,26 @@ class AciclovirIvTrialRun(BaseModel):
     arms: tuple[ArmExecutionResult, ...] = Field(min_length=2)
 
 
-def run_aciclovir_iv_trial(
+def run_trial_execution(
     trial: Trial,
     *,
+    model_capability_profile: ModelCapabilityProfile,
     population_generation_id: str,
     population_root: Path,
     output_root: Path,
     r_libs_user: str,
     observation_schedule: ObservationSchedule | None = None,
     progress: ProgressCallback | None = None,
-) -> AciclovirIvTrialRun:
-    """Execute a real prospective multi-arm aciclovir IV trial through verified OSP.
+) -> TrialExecutionRun:
+    """Execute a real prospective multi-arm trial through verified OSP.
 
     ``population_root`` must contain the ``population_generation_id`` OTPGEN
     artifact already written by ``PopulationArtifactStore``; it is verified
     before any row is handed to allocation or the OSP worker. Every arm's
-    intervention must be exactly one IV aciclovir infusion at 0 min over
-    10 min -- the one administration target this project has verified
-    against OSP -- the dose amount itself is unconstrained.
+    intervention must match the one administration this model's
+    ``ModelCapabilityProfile`` declares it has actually verified against
+    OSP -- the dose amount itself is unconstrained (subject to any declared
+    ``supported_doses``).
 
     ``observation_schedule``, when supplied, declares the trial-wide sample
     timeline (separate from each arm's dosing timing) and is applied
@@ -130,10 +129,19 @@ def run_aciclovir_iv_trial(
     solver's own default output grid is used, exactly as before this
     parameter existed.
     """
+    administration = model_capability_profile.administrations[0]
+    output = model_capability_profile.outputs[0]
+    package = model_capability_profile.package
+
     _notify(progress, "validating_trial")
     if trial.randomization is not RandomizationType.PARALLEL:
         raise ValueError("This workflow requires a PARALLEL-randomized, multi-arm trial.")
-    arm_doses = {arm.arm_id: _validate_arm_intervention(arm.intervention) for arm in trial.arms}
+    arm_doses = {
+        arm.arm_id: _validate_arm_intervention(
+            model_capability_profile, administration, arm.intervention
+        )
+        for arm in trial.arms
+    }
 
     _notify(progress, "verifying_population")
     population_store = PopulationArtifactStore(population_root)
@@ -144,7 +152,7 @@ def run_aciclovir_iv_trial(
     population_columns = tuple(population_table.column_names)
     population_rows = tuple(dict(row) for row in population_table.to_pylist())
 
-    run_id = f"OTR-aciclovir-iv-trial-{uuid.uuid4().hex}"
+    run_id = f"OTR-trial-{uuid.uuid4().hex}"
     run_directory = output_root / run_id
     run_directory.mkdir(parents=True, exist_ok=False)
     _write_document(run_directory / "trial.json", document("opentrials.trial", trial))
@@ -170,7 +178,7 @@ def run_aciclovir_iv_trial(
         _declared_times_minutes(observation_schedule) if observation_schedule is not None else ()
     )
 
-    package = _model_package()
+    osp_profile = osp_intervention_profile_from_capability(model_capability_profile)
     arm_results: list[ArmExecutionResult] = []
     arm_run_records: list[ArmRunRecord] = []
     endpoint_stores: dict[str, PkEndpointArtifactStore] = {}
@@ -182,9 +190,7 @@ def run_aciclovir_iv_trial(
             raise ValueError(f"Arm {arm.arm_id!r} was allocated zero participants.")
         arm_population_rows = tuple(population_rows[index] for index in arm_row_indexes)
 
-        translation = OspInterventionTranslator(_intervention_profile()).translate(
-            arm.intervention
-        )
+        translation = OspInterventionTranslator(osp_profile).translate(arm.intervention)
         assert translation.plan is not None
         arm_run_id = f"{run_id}-arm-{arm.arm_id}"
         raw_result = _execute_osp_population(
@@ -195,6 +201,8 @@ def run_aciclovir_iv_trial(
             population_rows=arm_population_rows,
             expected_population_count=len(arm_population_rows),
             assignments=translation.plan.assignments,
+            expected_pkml_sha256=package.artifact_hash.removeprefix("sha256:"),
+            expected_administration_container=administration.administration_container_path,
             output_intervals=output_intervals,
             r_libs_user=r_libs_user,
         )
@@ -210,14 +218,14 @@ def run_aciclovir_iv_trial(
         raw_response_sha256 = raw_document.sha256()
         execution_verification_sha256 = sha256(raw_result.payload["execution_verification"])
 
-        rows = _selected_raw_rows(raw_result.payload)
+        rows = _selected_raw_rows(raw_result.payload, output.parameter_path)
         selection = ResultSelectionMapping(
-            source_path=TOTAL_PLASMA_PATH,
-            analyte="aciclovir",
-            matrix="peripheral venous plasma",
-            fraction="total",
-            measurement="concentration",
-            time_unit="min",
+            source_path=output.parameter_path,
+            analyte=output.analyte,
+            matrix=output.matrix,
+            fraction=output.fraction,
+            measurement=output.measurement,
+            time_unit=output.time_unit,
         )
         result_id = f"OTRES-{run_id.removeprefix('OTR-')}-{arm.arm_id}"
         result_store = ResultArtifactStore(arm_directory / "normalized")
@@ -298,9 +306,10 @@ def run_aciclovir_iv_trial(
 
     _notify(progress, "writing_manifest")
     manifest = document(
-        "opentrials.aciclovir-iv-trial-run",
+        "opentrials.trial-execution-run",
         {
             "run_id": run_id,
+            "model_id": package.manifest.id,
             "trial_id": trial.trial_id,
             "trial_sha256": sha256(trial),
             "population_generation_id": population_generation_id,
@@ -378,7 +387,7 @@ def run_aciclovir_iv_trial(
     )
 
     _notify(progress, "completed")
-    return AciclovirIvTrialRun(
+    return TrialExecutionRun(
         run_id=run_id,
         run_directory=run_directory,
         trial_id=trial.trial_id,
@@ -397,66 +406,40 @@ def _as_int(value: object) -> int:
     return value
 
 
-def _validate_arm_intervention(intervention: Intervention) -> float:
+def _validate_arm_intervention(
+    profile: ModelCapabilityProfile,
+    administration: AdministrationCapability,
+    intervention: Intervention,
+) -> float:
     """Return the dose in mg if the arm matches the one verified administration target."""
-    if intervention.compound.identity.compound_id != "aciclovir":
-        raise ValueError("This workflow accepts only aciclovir arm interventions.")
+    compound_ids = {compound.compound_id for compound in profile.compounds}
+    if intervention.compound.identity.compound_id not in compound_ids:
+        raise ValueError(
+            f"This model only accepts interventions for compounds {sorted(compound_ids)!r}."
+        )
     if len(intervention.regimen.doses) != 1:
-        raise ValueError("This workflow accepts exactly one IV infusion per arm.")
+        raise ValueError("This workflow accepts exactly one dose per arm.")
     dose = intervention.regimen.doses[0]
-    if dose.route is not Route.INTRAVENOUS:
-        raise ValueError("This workflow accepts only intravenous administration.")
-    if dose.administration_time.to("min").value != 0.0:
-        raise ValueError("This workflow requires administration at 0 min.")
-    if dose.infusion_duration is None or dose.infusion_duration.to("min").value != 10.0:
-        raise ValueError("This workflow requires a 10 min IV infusion.")
-    return dose.amount.to("mg").value
-
-
-def _model_package() -> ModelPackage:
-    return ModelPackage(
-        manifest=ModelManifest(
-            id="osp.aciclovir.vergin-1995-iv",
-            version="12.4.4",
-            model_type=ModelType.PBPK,
-            engine="osp",
-            inputs=("intervention",),
-            outputs=("plasma_concentration",),
-            units={"plasma_concentration": "umol/L"},
-            applicability=Applicability(species=("human",)),
-            license="Bundled ospsuite example; redistribution not asserted.",
-        ),
-        artifact_uri=PKML_PATH.as_uri(),
-        artifact_hash=f"sha256:{PKML_SHA256}",
-        parameter_set_id="vergin-1995-iv-as-packaged",
-        parameter_hash=f"sha256:{PKML_SHA256}",
-        package_hash=f"sha256:{PKML_SHA256}",
-    )
-
-
-def _intervention_profile() -> OspInterventionProfile:
-    return OspInterventionProfile(
-        compound_mappings=(
-            OspCompoundMapping(opentrials_compound_id="aciclovir", osp_molecule_id="Aciclovir"),
-        ),
-        administration_targets=(
-            OspAdministrationTarget(
-                target_id="iv-any-dose-10min",
-                osp_molecule_id="Aciclovir",
-                route=Route.INTRAVENOUS,
-                dose_parameter_path=f"{IV_CONTAINER}Application_1|ProtocolSchemaItem|Dose",
-                dose_unit="kg",
-                administration_time_parameter_path=(
-                    f"{IV_CONTAINER}Application_1|ProtocolSchemaItem|Start time"
-                ),
-                administration_time_unit="min",
-                infusion_duration_parameter_path=(
-                    f"{IV_CONTAINER}Application_1|ProtocolSchemaItem|Infusion time"
-                ),
-                infusion_duration_unit="min",
-            ),
-        ),
-    )
+    if dose.route is not administration.route:
+        raise ValueError(f"This workflow accepts only {administration.route} administration.")
+    if (
+        administration.fixed_administration_time_min is not None
+        and dose.administration_time.to("min").value != administration.fixed_administration_time_min
+    ):
+        raise ValueError(
+            f"This workflow requires administration at "
+            f"{administration.fixed_administration_time_min} min."
+        )
+    if administration.fixed_infusion_duration_min is not None:
+        if (
+            dose.infusion_duration is None
+            or dose.infusion_duration.to("min").value != administration.fixed_infusion_duration_min
+        ):
+            raise ValueError(
+                f"This workflow requires a {administration.fixed_infusion_duration_min} min "
+                "infusion."
+            )
+    return dose.amount.to(administration.supported_dose_unit or "mg").value
 
 
 def _execute_osp_population(
@@ -466,6 +449,8 @@ def _execute_osp_population(
     population_rows: tuple[Mapping[str, object], ...],
     expected_population_count: int,
     assignments: tuple[OspParameterAssignment, ...],
+    expected_pkml_sha256: str,
+    expected_administration_container: str,
     output_intervals: tuple[OspOutputInterval, ...] = (),
     r_libs_user: str,
 ) -> RawSimulationResult:
@@ -476,8 +461,8 @@ def _execute_osp_population(
         population_columns=population_columns,
         population_rows=population_rows,
         expected_population_count=expected_population_count,
-        expected_pkml_sha256=PKML_SHA256,
-        expected_administration_container=IV_CONTAINER,
+        expected_pkml_sha256=expected_pkml_sha256,
+        expected_administration_container=expected_administration_container,
         parameter_assignments=assignments,
         output_intervals=output_intervals,
     )
@@ -561,17 +546,17 @@ def _verify_population_raw_result(
         )
 
 
-def _selected_raw_rows(payload: Mapping[str, Any]) -> tuple[Mapping[str, object], ...]:
+def _selected_raw_rows(
+    payload: Mapping[str, Any], output_path: str
+) -> tuple[Mapping[str, object], ...]:
     raw_rows = payload.get("raw_result_rows")
     if not isinstance(raw_rows, Sequence) or isinstance(raw_rows, (str, bytes)):
         raise ValueError("OSP response is missing raw_result_rows.")
     selected = tuple(
-        row
-        for row in raw_rows
-        if isinstance(row, Mapping) and row.get("paths") == TOTAL_PLASMA_PATH
+        row for row in raw_rows if isinstance(row, Mapping) and row.get("paths") == output_path
     )
     if not selected:
-        raise ValueError("OSP response has no rows for the verified total plasma output path.")
+        raise ValueError("OSP response has no rows for the verified declared output path.")
     return selected
 
 

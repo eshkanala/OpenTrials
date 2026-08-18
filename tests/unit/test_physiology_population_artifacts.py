@@ -10,6 +10,7 @@ import pytest
 
 from opentrials.adapters.osp import physiology_coverage_for, resolve_osp_physiology_column
 from opentrials.core.serialization import document
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
 from opentrials.physiology import PhysiologicalStateOverride
 from opentrials.storage import (
     PhysiologyPopulationArtifactManifest,
@@ -78,8 +79,8 @@ def write_physiology_population(
         source_column_names=COLUMNS,
         source_rows=source_rows(),
         override=override(scale_factor),
-        osp_parameter_path=resolve_osp_physiology_column(TARGET),
-        coverage=physiology_coverage_for(TARGET),
+        osp_parameter_path=resolve_osp_physiology_column(ACICLOVIR_IV_CAPABILITY_PROFILE, TARGET),
+        coverage=physiology_coverage_for(ACICLOVIR_IV_CAPABILITY_PROFILE, TARGET),
     )
     return physiology_store, manifest
 
@@ -150,8 +151,10 @@ def test_rejects_a_target_absent_from_the_source_table(tmp_path: Path) -> None:
                 {k: v for k, v in row.items() if k != GFR_COLUMN} for row in source_rows()
             ),
             override=override(0.5),
-            osp_parameter_path=resolve_osp_physiology_column(TARGET),
-            coverage=physiology_coverage_for(TARGET),
+            osp_parameter_path=resolve_osp_physiology_column(
+                ACICLOVIR_IV_CAPABILITY_PROFILE, TARGET
+            ),
+            coverage=physiology_coverage_for(ACICLOVIR_IV_CAPABILITY_PROFILE, TARGET),
         )
 
 

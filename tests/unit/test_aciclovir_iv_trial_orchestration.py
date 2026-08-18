@@ -1,4 +1,4 @@
-"""Contract tests for the prospective multi-arm Aciclovir IV trial workflow."""
+"""Contract tests for the generic prospective multi-arm trial workflow, using aciclovir."""
 
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ import pytest
 from opentrials.compound import Compound, CompoundIdentity, Dose, Intervention, Regimen, Route
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_trial import TOTAL_PLASMA_PATH, run_aciclovir_iv_trial
+from opentrials.models.profiles.aciclovir_iv import (
+    ACICLOVIR_IV_CAPABILITY_PROFILE,
+    TOTAL_PLASMA_PATH,
+)
+from opentrials.orchestration.trial_execution import run_trial_execution
 from opentrials.patient import PopulationSpec
 from opentrials.simulation.engine import RawSimulationResult
 from opentrials.storage import (
@@ -221,7 +225,7 @@ def test_multi_arm_trial_with_observation_schedule_computes_endpoints_from_decla
 ) -> None:
     population_root = build_population(tmp_path)
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population",
+        "opentrials.orchestration.trial_execution._execute_osp_population",
         fake_execution_with_schedule,
     )
     schedule = ObservationSchedule(
@@ -236,8 +240,9 @@ def test_multi_arm_trial_with_observation_schedule_computes_endpoints_from_decla
         ),
     )
 
-    result = run_aciclovir_iv_trial(
+    result = run_trial_execution(
         three_arm_trial(),
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         output_root=tmp_path / "runs",
@@ -303,7 +308,7 @@ def test_multi_arm_trial_rejects_mismatched_observed_output_times(
         )
 
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population",
+        "opentrials.orchestration.trial_execution._execute_osp_population",
         wrong_schedule_execution,
     )
     schedule = ObservationSchedule(
@@ -319,8 +324,9 @@ def test_multi_arm_trial_rejects_mismatched_observed_output_times(
     )
 
     with pytest.raises(ValueError, match="do not match the declared observation schedule"):
-        run_aciclovir_iv_trial(
+        run_trial_execution(
             three_arm_trial(),
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             population_generation_id=GENERATION_ID,
             population_root=population_root,
             output_root=tmp_path / "runs",
@@ -334,12 +340,13 @@ def test_multi_arm_trial_persists_lineage_aware_artifacts_per_arm(
 ) -> None:
     population_root = build_population(tmp_path)
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population", fake_execution
+        "opentrials.orchestration.trial_execution._execute_osp_population", fake_execution
     )
     stages: list[str] = []
 
-    result = run_aciclovir_iv_trial(
+    result = run_trial_execution(
         three_arm_trial(),
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         output_root=tmp_path / "runs",
@@ -379,7 +386,8 @@ def test_multi_arm_trial_persists_lineage_aware_artifacts_per_arm(
         assert endpoint_manifest["source_generation_id"] == GENERATION_ID
 
     top_manifest = json.loads((result.run_directory / "manifest.json").read_text(encoding="utf-8"))
-    assert top_manifest["schema"] == "opentrials.aciclovir-iv-trial-run"
+    assert top_manifest["schema"] == "opentrials.trial-execution-run"
+    assert top_manifest["payload"]["model_id"] == "osp.aciclovir.vergin-1995-iv"
     assert set(top_manifest["payload"]["arms"]) == {"low", "standard", "high"}
     assert (result.run_directory / "allocation" / result.allocation_id / "manifest.json").is_file()
 
@@ -394,8 +402,9 @@ def test_multi_arm_trial_rejects_non_randomized_trial(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="PARALLEL-randomized"):
-        run_aciclovir_iv_trial(
+        run_trial_execution(
             single_arm_trial,
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             population_generation_id=GENERATION_ID,
             population_root=population_root,
             output_root=tmp_path / "runs",
@@ -420,9 +429,10 @@ def test_multi_arm_trial_rejects_non_aciclovir_arm(tmp_path: Path) -> None:
         update={"arms": (bad_arm, arm("standard", 250.0, 0.5))}
     )
 
-    with pytest.raises(ValueError, match="only aciclovir"):
-        run_aciclovir_iv_trial(
+    with pytest.raises(ValueError, match="only accepts interventions for compounds"):
+        run_trial_execution(
             trial,
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             population_generation_id=GENERATION_ID,
             population_root=population_root,
             output_root=tmp_path / "runs",
@@ -435,11 +445,12 @@ def test_trial_produces_verifiable_comparison_and_top_level_ottrial_record(
 ) -> None:
     population_root = build_population(tmp_path)
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population", fake_execution
+        "opentrials.orchestration.trial_execution._execute_osp_population", fake_execution
     )
 
-    result = run_aciclovir_iv_trial(
+    result = run_trial_execution(
         three_arm_trial(),
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         output_root=tmp_path / "runs",

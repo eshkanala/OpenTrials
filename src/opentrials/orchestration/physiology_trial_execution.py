@@ -1,4 +1,4 @@
-"""Prospective virtual trial across declared physiological states.
+"""Prospective virtual trial across declared physiological states, generic over any model.
 
 verified OTPGEN population
     -> N declared PhysiologicalStateOverrides (>= 2, including one baseline)
@@ -13,11 +13,16 @@ verified OTPGEN population
     -> one immutable, independently re-verifiable OTPHYTRIAL provenance
        record
 
-This is the physiology-state analogue of ``orchestration.aciclovir_iv_trial``
+This is the physiology-state analogue of ``orchestration.trial_execution``
 (OTTRIAL): each state is executed as its own OSP run against the whole
 population (never a subset -- physiology states, unlike trial arms, are not
 a partition of the population), and the top-level record computes nothing
 itself, only referencing what every other store already verified.
+
+v0.7-B: this module used to be ``orchestration.aciclovir_iv_physiology_trial``,
+with the pinned Aciclovir model hard-coded. It now takes a
+``ModelCapabilityProfile`` and threads it through to
+``orchestration.physiology_population_execution`` for every state.
 """
 
 from __future__ import annotations
@@ -31,14 +36,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from opentrials.adapters.osp import OspSimulationEngine
 from opentrials.compound.compound import Compound, CompoundIdentity
-from opentrials.compound.intervention import Dose, Intervention, Regimen, Route
+from opentrials.compound.intervention import Dose, Intervention, Regimen
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import sha256
-from opentrials.orchestration.aciclovir_iv_physiology_population import (
-    PKML_SHA256,
+from opentrials.models.capability import ModelCapabilityProfile
+from opentrials.orchestration.physiology_population_execution import (
     build_physiology_population,
-    run_aciclovir_iv_physiology_population,
+    run_physiology_population_execution,
 )
 from opentrials.patient.population import PopulationSpec
 from opentrials.physiology.overrides import PhysiologicalStateOverride
@@ -74,7 +80,7 @@ class PhysiologyStateDeclaration(BaseModel):
     override: PhysiologicalStateOverride
 
 
-class AciclovirIvPhysiologyTrialRun(BaseModel):
+class PhysiologyTrialExecutionRun(BaseModel):
     """Top-level locations and identities from one physiology-state trial run."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -88,8 +94,9 @@ class AciclovirIvPhysiologyTrialRun(BaseModel):
     state_ids: tuple[str, ...] = Field(min_length=2)
 
 
-def run_aciclovir_iv_physiology_trial(
+def run_physiology_trial_execution(
     *,
+    model_capability_profile: ModelCapabilityProfile,
     population_generation_id: str,
     population_root: Path,
     physiology_root: Path,
@@ -101,7 +108,7 @@ def run_aciclovir_iv_physiology_trial(
     observation_schedule: ObservationSchedule | None = None,
     transport: Literal["json", "csv"] = "json",
     progress: ProgressCallback | None = None,
-) -> AciclovirIvPhysiologyTrialRun:
+) -> PhysiologyTrialExecutionRun:
     """Execute one prospective trial across every declared physiological state.
 
     Every state runs against the *whole* verified population (physiology
@@ -123,7 +130,7 @@ def run_aciclovir_iv_physiology_trial(
     population_store = PopulationArtifactStore(population_root)
     population_manifest = population_store.verify_population(population_generation_id)
 
-    run_id = f"OTR-aciclovir-iv-physiology-trial-{uuid.uuid4().hex}"
+    run_id = f"OTR-physiology-trial-{uuid.uuid4().hex}"
     run_directory = output_root / run_id
     run_directory.mkdir(parents=True, exist_ok=False)
     physiology_store = PhysiologyPopulationArtifactStore(physiology_root)
@@ -137,6 +144,7 @@ def run_aciclovir_iv_physiology_trial(
         _notify(progress, f"building_state:{declaration.state_id}")
         physiology_population_id = f"OTPHYS-{run_id.removeprefix('OTR-')}-{declaration.state_id}"
         physiology_manifest = build_physiology_population(
+            model_capability_profile=model_capability_profile,
             physiology_population_id=physiology_population_id,
             physiology_root=physiology_root,
             population_generation_id=population_generation_id,
@@ -146,7 +154,8 @@ def run_aciclovir_iv_physiology_trial(
         state_physiology_population_ids[declaration.state_id] = physiology_population_id
 
         _notify(progress, f"executing_state:{declaration.state_id}")
-        state_run = run_aciclovir_iv_physiology_population(
+        state_run = run_physiology_population_execution(
+            model_capability_profile=model_capability_profile,
             physiology_population_id=physiology_population_id,
             physiology_root=physiology_root,
             population_root=population_root,
@@ -197,7 +206,7 @@ def run_aciclovir_iv_physiology_trial(
     comparison_manifest = comparison_store.write_comparison(comparison_id, comparison_result)
 
     _notify(progress, "writing_trial_record")
-    trial = _trial_declaration(population_manifest.actual_count, dose_mg)
+    trial = _trial_declaration(model_capability_profile, population_manifest.actual_count, dose_mg)
     trial_run_store = PhysiologyTrialArtifactStore(run_directory / "trial_run")
     trial_run_id = f"OTPHYTRIAL-{run_id.removeprefix('OTR-')}"
     trial_run_store.create_trial_run(trial_run_id)
@@ -211,8 +220,8 @@ def run_aciclovir_iv_physiology_trial(
             source_population_semantic_sha256=(
                 population_manifest.individuals.semantic_content_sha256
             ),
-            model_id="osp.aciclovir.vergin-1995-iv",
-            model_sha256=f"sha256:{PKML_SHA256}",
+            model_id=model_capability_profile.package.manifest.id,
+            model_sha256=model_capability_profile.package.artifact_hash,
             baseline_state_id=baseline_state_id,
             states=tuple(state_records),
             comparison_id=comparison_id,
@@ -223,7 +232,7 @@ def run_aciclovir_iv_physiology_trial(
     )
 
     _notify(progress, "completed")
-    return AciclovirIvPhysiologyTrialRun(
+    return PhysiologyTrialExecutionRun(
         run_id=run_id,
         run_directory=run_directory,
         trial_run_id=trial_run_id,
@@ -234,7 +243,9 @@ def run_aciclovir_iv_physiology_trial(
     )
 
 
-def _trial_declaration(population_count: int, dose_mg: float) -> Trial:
+def _trial_declaration(
+    profile: ModelCapabilityProfile, population_count: int, dose_mg: float
+) -> Trial:
     """A minimal, valid Trial declaration hashed as this physiology trial's identity.
 
     This intentionally describes the intervention and source population
@@ -249,17 +260,22 @@ def _trial_declaration(population_count: int, dose_mg: float) -> Trial:
     def assumed(value: float, unit: str) -> ScientificValue:
         return ScientificValue(value=value, unit=unit, value_type=ValueType.ASSUMED)
 
+    administration = profile.administrations[0]
+    output = profile.outputs[0]
+    compound = next(c for c in profile.compounds if c.compound_id == administration.compound_id)
     intervention = Intervention(
-        intervention_id="aciclovir-iv-physiology-trial",
+        intervention_id=f"{compound.compound_id}-{administration.target_id}-physiology-trial",
         compound=Compound(
-            identity=CompoundIdentity(compound_id="aciclovir", preferred_name="Aciclovir")
+            identity=CompoundIdentity(
+                compound_id=compound.compound_id, preferred_name=compound.compound_id
+            )
         ),
         regimen=Regimen(
-            regimen_id="single-iv-infusion",
+            regimen_id=administration.target_id,
             doses=(
                 Dose(
                     amount=assumed(dose_mg, "mg"),
-                    route=Route.INTRAVENOUS,
+                    route=administration.route,
                     administration_time=assumed(0, "min"),
                     infusion_duration=assumed(10, "min"),
                 ),
@@ -267,13 +283,13 @@ def _trial_declaration(population_count: int, dose_mg: float) -> Trial:
         ),
     )
     return Trial(
-        trial_id="ACICLOVIR-IV-PHYSIOLOGY-STATE-TRIAL",
-        title="Aciclovir IV prospective physiological-state trial",
+        trial_id=f"{profile.package.manifest.id.upper()}-PHYSIOLOGY-STATE-TRIAL",
+        title=f"{profile.package.manifest.id} prospective physiological-state trial",
         question_of_interest=(
             "Same population and intervention executed across declared physiological states."
         ),
         population=PopulationSpec(
-            id="aciclovir-iv-physiology-trial", size=population_count, seed=0,
+            id="physiology-trial-execution", size=population_count, seed=0,
             generator_version="0.1.0",
         ),
         arms=(
@@ -286,12 +302,12 @@ def _trial_declaration(population_count: int, dose_mg: float) -> Trial:
             Endpoint(
                 endpoint_id="plasma-concentration",
                 endpoint_type=EndpointType.PK,
-                measurement="plasma aciclovir concentration",
+                measurement=f"plasma {output.analyte} concentration",
                 time_window=TimeWindow(start=assumed(0, "h"), end=assumed(24, "h")),
                 aggregation=EndpointAggregation.RAW,
                 missingness_rule=MissingnessRule.REPORT,
                 analysis_method="PK endpoints",
-                unit="umol/L",
+                unit=output.unit,
             ),
         ),
         seed=0,
@@ -299,8 +315,6 @@ def _trial_declaration(population_count: int, dose_mg: float) -> Trial:
 
 
 def _software_versions(r_libs_user: str) -> dict[str, str]:
-    from opentrials.adapters.osp import OspSimulationEngine
-
     versions = OspSimulationEngine(r_libs_user=r_libs_user).version_info()
     return {**versions, "python": platform.python_version(), "platform": platform.platform()}
 

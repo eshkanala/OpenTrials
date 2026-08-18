@@ -39,7 +39,8 @@ from opentrials.adapters.osp.generation import (
 )
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_population import run_aciclovir_iv_population
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.orchestration.population_execution import run_population_execution
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.storage import (
     PopulationArtifactManifest,
@@ -110,7 +111,8 @@ def test_csv_and_json_transport_produce_identical_scientific_results(tmp_path: P
     population_store = PopulationArtifactStore(population_root)
     generate_and_persist_population(population_store, r_libs_user)
 
-    json_run = run_aciclovir_iv_population(
+    json_run = run_population_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         dose_mg=250.0,
@@ -118,7 +120,8 @@ def test_csv_and_json_transport_produce_identical_scientific_results(tmp_path: P
         r_libs_user=r_libs_user,
         transport="json",
     )
-    csv_run = run_aciclovir_iv_population(
+    csv_run = run_population_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         dose_mg=250.0,

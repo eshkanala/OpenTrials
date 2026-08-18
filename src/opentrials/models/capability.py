@@ -54,6 +54,8 @@ class AdministrationCapability(BaseModel):
     infusion_duration_unit: str | None = None
     supported_doses: tuple[float, ...] = ()
     supported_dose_unit: str | None = None
+    fixed_administration_time_min: float | None = None
+    fixed_infusion_duration_min: float | None = None
 
 
 class PhysiologyTargetCapability(BaseModel):

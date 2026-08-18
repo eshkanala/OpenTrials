@@ -33,9 +33,10 @@ from opentrials.adapters.osp.generation import (
 )
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_physiology_population import (
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.orchestration.physiology_population_execution import (
     build_physiology_population,
-    run_aciclovir_iv_physiology_population,
+    run_physiology_population_execution,
 )
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.physiology import PhysiologicalStateOverride
@@ -131,6 +132,7 @@ def test_renal_gfr_override_executes_at_three_states_with_identical_lineage(
 
     for physiology_population_id, scale_factor in STATES:
         physiology_manifest = build_physiology_population(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             physiology_population_id=physiology_population_id,
             physiology_root=physiology_root,
             population_generation_id=GENERATION_ID,
@@ -157,7 +159,8 @@ def test_renal_gfr_override_executes_at_three_states_with_identical_lineage(
             physiology_population_id
         ) == physiology_manifest
 
-        run = run_aciclovir_iv_physiology_population(
+        run = run_physiology_population_execution(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             physiology_population_id=physiology_population_id,
             physiology_root=physiology_root,
             population_root=population_root,

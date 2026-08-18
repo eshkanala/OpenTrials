@@ -33,7 +33,8 @@ from opentrials.cohort import (
 )
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_population import run_aciclovir_iv_population
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.orchestration.population_execution import run_population_execution
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.storage import (
     CohortPkComparisonArtifactStore,
@@ -140,7 +141,8 @@ def test_population_linked_pbpk_execution_and_live_cohort_comparison(tmp_path: P
     manifest = generate_and_persist_population(population_store, r_libs_user)
     generation_id = manifest.generation_id
 
-    run = run_aciclovir_iv_population(
+    run = run_population_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=generation_id,
         population_root=population_root,
         dose_mg=250.0,

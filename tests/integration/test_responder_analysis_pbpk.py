@@ -26,7 +26,8 @@ from opentrials.adapters.osp.generation import (
 from opentrials.analysis.pk import PkEndpointType
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_population import run_aciclovir_iv_population
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.orchestration.population_execution import run_population_execution
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.responders import ExtremeResponderDefinition, SelectionMethod, TiePolicy
 from opentrials.responders.orchestration import run_extreme_responder_analysis
@@ -105,7 +106,8 @@ def test_extreme_responders_identified_and_compared_against_real_pbpk_population
     population_manifest = generate_and_persist_population(population_store, r_libs_user)
     generation_id = population_manifest.generation_id
 
-    run = run_aciclovir_iv_population(
+    run = run_population_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=generation_id,
         population_root=population_root,
         dose_mg=250.0,

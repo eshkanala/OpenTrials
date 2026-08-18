@@ -27,7 +27,8 @@ from opentrials.adapters.osp.generation import (
 from opentrials.compound import Compound, CompoundIdentity, Dose, Intervention, Regimen, Route
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_trial import run_aciclovir_iv_trial
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.orchestration.trial_execution import run_trial_execution
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.storage import (
     ArmComparisonArtifactStore,
@@ -169,8 +170,9 @@ def test_prospective_three_arm_trial_executes_and_yields_distinct_arm_outcomes(
     population_manifest = generate_and_persist_population(population_store, r_libs_user)
     generation_id = population_manifest.generation_id
 
-    run = run_aciclovir_iv_trial(
+    run = run_trial_execution(
         dose_comparison_trial(),
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=generation_id,
         population_root=population_root,
         output_root=tmp_path / "runs",
@@ -238,8 +240,9 @@ def test_prospective_trial_with_declared_observation_schedule(tmp_path: Path) ->
     )
     expected_times = schedule.declared_times()
 
-    run = run_aciclovir_iv_trial(
+    run = run_trial_execution(
         dose_comparison_trial(),
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=generation_id,
         population_root=population_root,
         output_root=tmp_path / "runs",
@@ -296,8 +299,9 @@ def test_complete_prospective_multi_arm_trial_with_schedule_and_provenance_chain
     assert len(expected_times) == 12
 
     trial = dose_comparison_trial()
-    run = run_aciclovir_iv_trial(
+    run = run_trial_execution(
         trial,
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=generation_id,
         population_root=population_root,
         output_root=tmp_path / "runs",

@@ -32,9 +32,10 @@ from opentrials.analysis.physiology_comparison import PhysiologyStateEndpointSum
 from opentrials.analysis.pk import PkEndpointType
 from opentrials.core.scientific_value import ScientificValue, ValueType
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_physiology_trial import (
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.orchestration.physiology_trial_execution import (
     PhysiologyStateDeclaration,
-    run_aciclovir_iv_physiology_trial,
+    run_physiology_trial_execution,
 )
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.physiology import PhysiologicalStateOverride
@@ -145,7 +146,8 @@ def test_prospective_physiology_state_trial_with_paired_comparison_and_provenanc
         for state_id, scale_factor in STATES
     )
 
-    result = run_aciclovir_iv_physiology_trial(
+    result = run_physiology_trial_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         physiology_root=physiology_root,

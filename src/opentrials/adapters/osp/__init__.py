@@ -7,6 +7,7 @@ from opentrials.adapters.osp.capabilities import (
     OspModelCapabilityReport,
     OspModelCapabilityStatus,
 )
+from opentrials.adapters.osp.capability import osp_intervention_profile_from_capability
 from opentrials.adapters.osp.cohort import osp_population_field_catalog
 from opentrials.adapters.osp.engine import (
     OspExecutionVerificationError,
@@ -28,8 +29,6 @@ from opentrials.adapters.osp.intervention import (
     OspParameterAssignment,
 )
 from opentrials.adapters.osp.physiology_targets import (
-    OSP_PHYSIOLOGY_TARGET_COLUMNS,
-    RENAL_GLOMERULAR_FILTRATION_RATE,
     UnsupportedPhysiologyTargetError,
     physiology_coverage_for,
     resolve_osp_physiology_column,
@@ -57,9 +56,8 @@ from opentrials.adapters.osp.uncertainty import (
 __all__ = [
     "ACICLOVIR_IV_DOSE_TARGET",
     "ACICLOVIR_IV_MODEL_SHA256",
-    "OSP_PHYSIOLOGY_TARGET_COLUMNS",
-    "RENAL_GLOMERULAR_FILTRATION_RATE",
     "UnsupportedPhysiologyTargetError",
+    "osp_intervention_profile_from_capability",
     "physiology_coverage_for",
     "resolve_osp_physiology_column",
     "osp_population_field_catalog",

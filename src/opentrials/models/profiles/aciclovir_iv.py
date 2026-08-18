@@ -1,15 +1,11 @@
 """The registered capability profile for the pinned Aciclovir IV model.
 
 This is the first, and so far only, registered profile -- the "reference
-implementation" v0.7-A explicitly keeps aciclovir as. Every value here is
-copied from the values already hard-coded and live-verified across
-``orchestration.aciclovir_iv_population`` and
-``adapters.osp.physiology_targets``; it does not invent anything new.
-``tests/unit/test_aciclovir_iv_capability_profile.py`` cross-checks this
-profile against those modules' own constants, so the two representations
-cannot silently drift apart before v0.7-B removes the duplication by having
-orchestration read from this profile directly instead of hard-coding these
-values a second time.
+implementation" v0.7 explicitly keeps aciclovir as. Every OSP-specific value
+here (PKML hash, parameter paths) is the same value the execution pipeline
+now reads *from this profile* rather than from its own hard-coded constants
+(v0.7-B removed the duplication v0.7-A's drift-guard test was written to
+catch); nothing here is invented.
 """
 
 from __future__ import annotations
@@ -25,11 +21,11 @@ from opentrials.models.capability import (
 )
 from opentrials.models.manifest import Applicability, ModelManifest, ModelType
 from opentrials.models.package import ModelPackage
+from opentrials.physiology import RENAL_GLOMERULAR_FILTRATION_RATE
 
 PKML_SHA256 = "efbc7a3004534780bab46ca75a15dfd37ee271d4b8eec8c304b7ef5a2f083de7"
 IV_CONTAINER = "Events|IV 250mg 10min|"
 TOTAL_PLASMA_PATH = "Organism|PeripheralVenousBlood|Aciclovir|Plasma (Peripheral Venous Blood)"
-RENAL_GLOMERULAR_FILTRATION_RATE = "renal.glomerular_filtration_rate"
 
 ACICLOVIR_IV_CAPABILITY_PROFILE = ModelCapabilityProfile(
     package=ModelPackage(
@@ -74,6 +70,8 @@ ACICLOVIR_IV_CAPABILITY_PROFILE = ModelCapabilityProfile(
             infusion_duration_unit="min",
             supported_doses=(125.0, 250.0),
             supported_dose_unit="mg",
+            fixed_administration_time_min=0.0,
+            fixed_infusion_duration_min=10.0,
         ),
     ),
     physiology_targets=(

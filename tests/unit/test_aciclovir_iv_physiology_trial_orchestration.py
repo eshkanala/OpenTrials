@@ -1,4 +1,4 @@
-"""Contract tests for the prospective physiology-state trial workflow."""
+"""Contract tests for the generic prospective physiology-state trial workflow."""
 
 from __future__ import annotations
 
@@ -8,10 +8,13 @@ from pathlib import Path
 import pytest
 
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_physiology_population import TOTAL_PLASMA_PATH
-from opentrials.orchestration.aciclovir_iv_physiology_trial import (
+from opentrials.models.profiles.aciclovir_iv import (
+    ACICLOVIR_IV_CAPABILITY_PROFILE,
+    TOTAL_PLASMA_PATH,
+)
+from opentrials.orchestration.physiology_trial_execution import (
     PhysiologyStateDeclaration,
-    run_aciclovir_iv_physiology_trial,
+    run_physiology_trial_execution,
 )
 from opentrials.physiology import PhysiologicalStateOverride
 from opentrials.simulation.engine import RawSimulationResult
@@ -129,12 +132,13 @@ def test_trial_produces_verifiable_comparison_and_top_level_otphytrial_record(
 ) -> None:
     population_root = build_population(tmp_path)
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_physiology_population._execute_osp_population",
+        "opentrials.orchestration.physiology_population_execution._execute_osp_population",
         fake_execution,
     )
     stages: list[str] = []
 
-    result = run_aciclovir_iv_physiology_trial(
+    result = run_physiology_trial_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         physiology_root=tmp_path / "physiology",
@@ -191,11 +195,12 @@ def test_trial_produces_verifiable_comparison_and_top_level_otphytrial_record(
 def test_requires_at_least_two_states(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     population_root = build_population(tmp_path)
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_physiology_population._execute_osp_population",
+        "opentrials.orchestration.physiology_population_execution._execute_osp_population",
         fake_execution,
     )
     with pytest.raises(ValueError, match="at least two"):
-        run_aciclovir_iv_physiology_trial(
+        run_physiology_trial_execution(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             population_generation_id=GENERATION_ID,
             population_root=population_root,
             physiology_root=tmp_path / "physiology",

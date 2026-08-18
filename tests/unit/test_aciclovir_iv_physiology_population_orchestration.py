@@ -1,4 +1,4 @@
-"""Contract tests for the physiology-state population execution workflow."""
+"""Contract tests for the generic physiology-state population execution workflow."""
 
 from __future__ import annotations
 
@@ -10,10 +10,13 @@ import pytest
 
 from opentrials.adapters.osp import UnsupportedPhysiologyTargetError
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_physiology_population import (
+from opentrials.models.profiles.aciclovir_iv import (
+    ACICLOVIR_IV_CAPABILITY_PROFILE,
     TOTAL_PLASMA_PATH,
+)
+from opentrials.orchestration.physiology_population_execution import (
     build_physiology_population,
-    run_aciclovir_iv_physiology_population,
+    run_physiology_population_execution,
 )
 from opentrials.physiology import PhysiologicalStateOverride
 from opentrials.simulation.engine import RawSimulationResult
@@ -107,6 +110,7 @@ def test_build_physiology_population_scales_only_the_verified_column(tmp_path: P
     population_root = build_population(tmp_path)
     physiology_root = tmp_path / "physiology"
     manifest = build_physiology_population(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         physiology_population_id="OTPHYS-severe",
         physiology_root=physiology_root,
         population_generation_id=GENERATION_ID,
@@ -126,6 +130,7 @@ def test_run_over_physiology_population_resolves_lineage_against_original_otpgen
     population_root = build_population(tmp_path)
     physiology_root = tmp_path / "physiology"
     build_physiology_population(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         physiology_population_id="OTPHYS-moderate",
         physiology_root=physiology_root,
         population_generation_id=GENERATION_ID,
@@ -135,12 +140,13 @@ def test_run_over_physiology_population_resolves_lineage_against_original_otpgen
         ),
     )
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_physiology_population._execute_osp_population",
+        "opentrials.orchestration.physiology_population_execution._execute_osp_population",
         fake_execution,
     )
     stages: list[str] = []
 
-    result = run_aciclovir_iv_physiology_population(
+    result = run_physiology_population_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         physiology_population_id="OTPHYS-moderate",
         physiology_root=physiology_root,
         population_root=population_root,
@@ -183,6 +189,7 @@ def test_two_physiology_states_from_the_same_source_yield_identical_lineage(
     physiology_root = tmp_path / "physiology"
     for physiology_population_id, scale_factor in (("OTPHYS-a", 1.0), ("OTPHYS-b", 0.3)):
         build_physiology_population(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             physiology_population_id=physiology_population_id,
             physiology_root=physiology_root,
             population_generation_id=GENERATION_ID,
@@ -192,13 +199,14 @@ def test_two_physiology_states_from_the_same_source_yield_identical_lineage(
             ),
         )
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_physiology_population._execute_osp_population",
+        "opentrials.orchestration.physiology_population_execution._execute_osp_population",
         fake_execution,
     )
 
     lineage_by_state: dict[str, dict[str, tuple[int, str]]] = {}
     for physiology_population_id in ("OTPHYS-a", "OTPHYS-b"):
-        result = run_aciclovir_iv_physiology_population(
+        result = run_physiology_population_execution(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             physiology_population_id=physiology_population_id,
             physiology_root=physiology_root,
             population_root=population_root,
@@ -228,6 +236,7 @@ def test_build_physiology_population_rejects_an_unverified_target(tmp_path: Path
 
     with pytest.raises(UnsupportedPhysiologyTargetError):
         build_physiology_population(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             physiology_population_id="OTPHYS-invalid",
             physiology_root=tmp_path / "physiology",
             population_generation_id=GENERATION_ID,

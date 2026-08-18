@@ -1,69 +1,48 @@
-"""Strict OSP mapping for verified OpenTrials physiological-state targets.
+"""Resolve a declared physiology target against a registered model's own profile.
 
-Only one target has an empirically verified execution path today (see the
-v0.6-A capability probe recorded in HANDOFF.md): ``ospsuite-R`` exposes no
-disease- or organ-impairment population API at all -- neither
-``createPopulationCharacteristics()`` nor ``createIndividualCharacteristics()``
-has a disease parameter, and the package help index has zero renal/kidney/
-impairment/disease topics. But the pinned Aciclovir model carries a real,
-physiologically meaningful per-individual glomerular filtration rate
-(``Organism|Kidney|GFRmat``, litres/minute) that is already a standard
-column in every population OSP generates. Scaling it was verified to
-round-trip exactly through ``populationFromDataFrame()``/
-``populationToDataFrame()`` and to produce a monotonic, mechanistically
-sensible PK consequence when executed. Nothing else is claimed.
+v0.7-B: this module used to hardcode one model's verified physiology-target
+mapping directly (the v0.6-A capability probe's finding that the pinned
+Aciclovir model's ``Organism|Kidney|GFRmat`` column is the only verified
+physiological-state lever). That mapping now lives as data on the model's
+own ``ModelCapabilityProfile`` (see ``models.profiles.aciclovir_iv``) --
+this module only resolves a requested target against whichever profile is
+supplied, so it works unchanged for any future registered model that
+declares its own verified physiology targets.
 """
 
 from __future__ import annotations
 
+from opentrials.models.capability import ModelCapabilityProfile
 from opentrials.physiology.overrides import PhysiologyCoverageReport
-
-RENAL_GLOMERULAR_FILTRATION_RATE = "renal.glomerular_filtration_rate"
-
-OSP_PHYSIOLOGY_TARGET_COLUMNS: dict[str, str] = {
-    RENAL_GLOMERULAR_FILTRATION_RATE: "Organism|Kidney|GFRmat",
-}
-
-_COVERAGE_BY_TARGET: dict[str, PhysiologyCoverageReport] = {
-    RENAL_GLOMERULAR_FILTRATION_RATE: PhysiologyCoverageReport(
-        modeled=("renal.glomerular_filtration",),
-        unmodeled=(
-            "renal.tubular_secretion",
-            "renal.blood_flow",
-            "renal.protein_binding_effects",
-        ),
-        interpretation=(
-            "Only glomerular filtration was perturbed, via a direct scale of the "
-            "model's own per-individual GFRmat parameter. Tubular secretion and "
-            "other renal-clearance pathways were left unmodified. This is a "
-            "verified physiological-parameter perturbation, not a disease-state "
-            "(e.g. CKD or renal impairment) claim -- a complete renal-impairment "
-            "phenotype would need to also scale tubular secretion and other "
-            "renal mechanisms, which this override does not do."
-        ),
-    ),
-}
 
 
 class UnsupportedPhysiologyTargetError(ValueError):
     """Raised before touching a population table when no verified mapping exists."""
 
 
-def resolve_osp_physiology_column(target: str) -> str:
+def resolve_osp_physiology_column(profile: ModelCapabilityProfile, target: str) -> str:
     """Return the exact OTPGEN population-table column for a verified target."""
-    try:
-        return OSP_PHYSIOLOGY_TARGET_COLUMNS[target]
-    except KeyError as error:
-        raise UnsupportedPhysiologyTargetError(
-            f"No verified OSP physiological-state mapping exists for target {target!r}."
-        ) from error
+    for capability in profile.physiology_targets:
+        if capability.target == target:
+            return capability.parameter_path
+    raise UnsupportedPhysiologyTargetError(
+        f"No verified physiological-state mapping exists for target {target!r} on "
+        f"model {profile.package.manifest.id!r}."
+    )
 
 
-def physiology_coverage_for(target: str) -> PhysiologyCoverageReport:
+def physiology_coverage_for(
+    profile: ModelCapabilityProfile, target: str
+) -> PhysiologyCoverageReport:
     """Return the fixed, honest coverage statement for a verified target."""
-    try:
-        return _COVERAGE_BY_TARGET[target]
-    except KeyError as error:
-        raise UnsupportedPhysiologyTargetError(
-            f"No verified physiology coverage statement exists for target {target!r}."
-        ) from error
+    for capability in profile.physiology_targets:
+        if capability.target == target:
+            return PhysiologyCoverageReport(
+                modeled=capability.modeled,
+                unmodeled=capability.unmodeled,
+                interpretation=capability.interpretation,
+            )
+    raise UnsupportedPhysiologyTargetError(
+        f"No verified physiology coverage statement exists for target {target!r} on "
+        f"model {profile.package.manifest.id!r}."
+    )

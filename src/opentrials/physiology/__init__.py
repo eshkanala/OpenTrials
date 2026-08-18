@@ -7,6 +7,14 @@ dependency-free types, matching the import-cycle-avoidance discipline used
 by ``cohort`` and ``responders`` elsewhere in this project.
 """
 
-from opentrials.physiology.overrides import PhysiologicalStateOverride, PhysiologyCoverageReport
+from opentrials.physiology.overrides import (
+    RENAL_GLOMERULAR_FILTRATION_RATE,
+    PhysiologicalStateOverride,
+    PhysiologyCoverageReport,
+)
 
-__all__ = ["PhysiologicalStateOverride", "PhysiologyCoverageReport"]
+__all__ = [
+    "RENAL_GLOMERULAR_FILTRATION_RATE",
+    "PhysiologicalStateOverride",
+    "PhysiologyCoverageReport",
+]

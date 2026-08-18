@@ -1,105 +1,80 @@
-"""Drift guard: the registered aciclovir profile must match orchestration's own constants.
+"""Self-consistency checks for the registered aciclovir capability profile.
 
-Until v0.7-B has orchestration read from the registered profile instead of
-its own hard-coded constants, these two representations exist in parallel.
-This test is what keeps them honest in the meantime -- if either changes
-without the other, this fails immediately, the same discipline this project
-already applies to every other duplicated-by-necessity value.
+Before v0.7-B, orchestration kept its own hard-coded copies of these values
+and this test drift-guarded the registered profile against them. v0.7-B
+removed the duplication: orchestration now reads every one of these values
+*from* ``ACICLOVIR_IV_CAPABILITY_PROFILE`` itself, so there is no longer a
+second, independent representation to drift-guard against. What remains
+worth verifying here is that the profile's own declared fields are
+internally consistent, and that the generic OSP-side capability resolvers
+correctly read whatever profile they are handed.
 """
 
 from __future__ import annotations
 
-from opentrials.adapters.osp.physiology_targets import (
-    OSP_PHYSIOLOGY_TARGET_COLUMNS,
-    RENAL_GLOMERULAR_FILTRATION_RATE,
-    physiology_coverage_for,
-)
-from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
-from opentrials.orchestration.aciclovir_iv_population import (
+from opentrials.adapters.osp import physiology_coverage_for, resolve_osp_physiology_column
+from opentrials.adapters.osp.capability import osp_intervention_profile_from_capability
+from opentrials.models.profiles.aciclovir_iv import (
+    ACICLOVIR_IV_CAPABILITY_PROFILE,
     IV_CONTAINER,
-    PKML_PATH,
     PKML_SHA256,
-    SUPPORTED_DOSES_MG,
     TOTAL_PLASMA_PATH,
-    _intervention_profile,
-    _model_package,
 )
+from opentrials.physiology import RENAL_GLOMERULAR_FILTRATION_RATE
+
+PROFILE = ACICLOVIR_IV_CAPABILITY_PROFILE
 
 
-def test_package_identity_matches_the_live_orchestration_constants() -> None:
-    orchestration_package = _model_package()
-    profile_package = ACICLOVIR_IV_CAPABILITY_PROFILE.package
+def test_package_identity_is_self_consistent() -> None:
+    package = PROFILE.package
+    assert package.artifact_hash == f"sha256:{PKML_SHA256}"
+    assert package.parameter_hash == f"sha256:{PKML_SHA256}"
+    assert package.package_hash == f"sha256:{PKML_SHA256}"
+    assert package.manifest.id == "osp.aciclovir.vergin-1995-iv"
+    assert package.manifest.engine == "osp"
+    assert "human" in package.manifest.applicability.species
 
-    assert profile_package.artifact_hash == f"sha256:{PKML_SHA256}"
-    assert profile_package.artifact_uri == PKML_PATH.as_uri()
-    assert profile_package.manifest.id == orchestration_package.manifest.id
-    assert profile_package.manifest.version == orchestration_package.manifest.version
-    assert profile_package.manifest.engine == orchestration_package.manifest.engine
-    assert profile_package.manifest.units == orchestration_package.manifest.units
+
+def test_administration_declares_the_one_verified_iv_target() -> None:
+    administration = PROFILE.administrations[0]
+    assert administration.administration_container_path == IV_CONTAINER
+    assert administration.dose_parameter_path.startswith(IV_CONTAINER)
+    assert administration.administration_time_parameter_path.startswith(IV_CONTAINER)
+    assert administration.infusion_duration_parameter_path.startswith(IV_CONTAINER)
+    assert administration.supported_doses == (125.0, 250.0)
+    assert administration.supported_dose_unit == "mg"
+    assert administration.fixed_administration_time_min == 0.0
+    assert administration.fixed_infusion_duration_min == 10.0
+
+
+def test_compound_maps_to_the_engine_molecule_the_administration_references() -> None:
+    compound = PROFILE.compounds[0]
+    administration = PROFILE.administrations[0]
+    assert compound.compound_id == "aciclovir"
+    assert administration.compound_id == compound.compound_id
+    osp_profile = osp_intervention_profile_from_capability(PROFILE)
+    assert osp_profile.compound_mappings[0].osp_molecule_id == compound.engine_molecule_id
+    assert osp_profile.administration_targets[0].osp_molecule_id == compound.engine_molecule_id
+
+
+def test_output_matches_the_registered_result_selection_path() -> None:
+    assert PROFILE.outputs[0].parameter_path == TOTAL_PLASMA_PATH
+
+
+def test_physiology_target_resolvers_read_from_the_given_profile() -> None:
+    declared = PROFILE.physiology_targets[0]
+    assert declared.target == RENAL_GLOMERULAR_FILTRATION_RATE
+
     assert (
-        profile_package.manifest.applicability.species
-        == orchestration_package.manifest.applicability.species
+        resolve_osp_physiology_column(PROFILE, RENAL_GLOMERULAR_FILTRATION_RATE)
+        == declared.parameter_path
     )
-
-
-def test_administration_matches_the_live_intervention_profile() -> None:
-    orchestration_target = _intervention_profile().administration_targets[0]
-    profile_administration = ACICLOVIR_IV_CAPABILITY_PROFILE.administrations[0]
-
-    assert profile_administration.target_id == orchestration_target.target_id
-    assert profile_administration.route == orchestration_target.route
-    assert profile_administration.administration_container_path == IV_CONTAINER
-    assert profile_administration.dose_parameter_path == orchestration_target.dose_parameter_path
-    assert profile_administration.dose_unit == orchestration_target.dose_unit
-    assert (
-        profile_administration.administration_time_parameter_path
-        == orchestration_target.administration_time_parameter_path
-    )
-    assert (
-        profile_administration.administration_time_unit
-        == orchestration_target.administration_time_unit
-    )
-    assert (
-        profile_administration.infusion_duration_parameter_path
-        == orchestration_target.infusion_duration_parameter_path
-    )
-    assert (
-        profile_administration.infusion_duration_unit
-        == orchestration_target.infusion_duration_unit
-    )
-    assert profile_administration.supported_doses == SUPPORTED_DOSES_MG
-    assert profile_administration.supported_dose_unit == "mg"
-
-
-def test_compound_mapping_matches_the_live_intervention_profile() -> None:
-    orchestration_mapping = _intervention_profile().compound_mappings[0]
-    profile_compound = ACICLOVIR_IV_CAPABILITY_PROFILE.compounds[0]
-
-    assert profile_compound.compound_id == orchestration_mapping.opentrials_compound_id
-    assert profile_compound.engine_molecule_id == orchestration_mapping.osp_molecule_id
-
-
-def test_output_matches_the_live_result_selection_path() -> None:
-    profile_output = ACICLOVIR_IV_CAPABILITY_PROFILE.outputs[0]
-    assert profile_output.parameter_path == TOTAL_PLASMA_PATH
-
-
-def test_physiology_target_matches_the_live_registered_osp_mapping() -> None:
-    profile_target = ACICLOVIR_IV_CAPABILITY_PROFILE.physiology_targets[0]
-    coverage = physiology_coverage_for(RENAL_GLOMERULAR_FILTRATION_RATE)
-
-    assert profile_target.target == RENAL_GLOMERULAR_FILTRATION_RATE
-    assert (
-        profile_target.parameter_path
-        == OSP_PHYSIOLOGY_TARGET_COLUMNS[RENAL_GLOMERULAR_FILTRATION_RATE]
-    )
-    assert profile_target.modeled == coverage.modeled
-    assert profile_target.unmodeled == coverage.unmodeled
-    assert profile_target.interpretation == coverage.interpretation
+    coverage = physiology_coverage_for(PROFILE, RENAL_GLOMERULAR_FILTRATION_RATE)
+    assert coverage.modeled == declared.modeled
+    assert coverage.unmodeled == declared.unmodeled
+    assert coverage.interpretation == declared.interpretation
 
 
 def test_repeated_dosing_is_declared_as_an_unsupported_capability() -> None:
-    capabilities = {
-        item.capability for item in ACICLOVIR_IV_CAPABILITY_PROFILE.unsupported_capabilities
-    }
+    capabilities = {item.capability for item in PROFILE.unsupported_capabilities}
     assert "repeated_dosing" in capabilities

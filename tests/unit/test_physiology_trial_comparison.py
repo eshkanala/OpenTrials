@@ -9,6 +9,7 @@ import pytest
 from opentrials.adapters.osp import physiology_coverage_for, resolve_osp_physiology_column
 from opentrials.analysis.pk import PkEndpointResult, PkEndpointType
 from opentrials.core.serialization import document, sha256
+from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
 from opentrials.physiology import PhysiologicalStateOverride
 from opentrials.storage import (
     PhysiologyPopulationArtifactStore,
@@ -77,8 +78,8 @@ def build_state(
         override=PhysiologicalStateOverride(
             target=TARGET, scale_factor=scale_factor, unit="L/min", purpose="test"
         ),
-        osp_parameter_path=resolve_osp_physiology_column(TARGET),
-        coverage=physiology_coverage_for(TARGET),
+        osp_parameter_path=resolve_osp_physiology_column(ACICLOVIR_IV_CAPABILITY_PROFILE, TARGET),
+        coverage=physiology_coverage_for(ACICLOVIR_IV_CAPABILITY_PROFILE, TARGET),
     )
     return physiology_population_id
 

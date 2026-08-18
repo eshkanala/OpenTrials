@@ -1,4 +1,4 @@
-"""Contract tests for the population-linked Aciclovir IV execution workflow."""
+"""Contract tests for the generic population-linked execution workflow, using aciclovir."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from pathlib import Path
 import pytest
 
 from opentrials.core.serialization import document
-from opentrials.orchestration.aciclovir_iv_population import (
+from opentrials.models.profiles.aciclovir_iv import (
+    ACICLOVIR_IV_CAPABILITY_PROFILE,
     TOTAL_PLASMA_PATH,
-    run_aciclovir_iv_population,
 )
+from opentrials.orchestration.population_execution import run_population_execution
 from opentrials.simulation.engine import RawSimulationResult
 from opentrials.storage import (
     PopulationArtifactStore,
@@ -91,12 +92,13 @@ def test_population_run_persists_lineage_aware_artifacts_and_reports_progress(
 ) -> None:
     population_root = build_population(tmp_path)
     monkeypatch.setattr(
-        "opentrials.orchestration.aciclovir_iv_population._execute_osp_population",
+        "opentrials.orchestration.population_execution._execute_osp_population",
         fake_execution,
     )
     stages: list[str] = []
 
-    result = run_aciclovir_iv_population(
+    result = run_population_execution(
+        model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
         population_generation_id=GENERATION_ID,
         population_root=population_root,
         dose_mg=250.0,
@@ -144,7 +146,8 @@ def test_population_run_persists_lineage_aware_artifacts_and_reports_progress(
     assert endpoint_manifest["source_generation_id"] == GENERATION_ID
 
     top_manifest = json.loads((result.run_directory / "manifest.json").read_text(encoding="utf-8"))
-    assert top_manifest["schema"] == "opentrials.aciclovir-iv-population-run"
+    assert top_manifest["schema"] == "opentrials.population-execution-run"
+    assert top_manifest["payload"]["model_id"] == "osp.aciclovir.vergin-1995-iv"
     assert top_manifest["payload"]["population_count"] == 3
     assert top_manifest["payload"]["dose_mg"] == 250.0
 
@@ -152,8 +155,9 @@ def test_population_run_persists_lineage_aware_artifacts_and_reports_progress(
 def test_population_run_rejects_unsupported_dose(tmp_path: Path) -> None:
     population_root = build_population(tmp_path)
 
-    with pytest.raises(ValueError, match="125 mg or 250 mg"):
-        run_aciclovir_iv_population(
+    with pytest.raises(ValueError, match="only accepts doses"):
+        run_population_execution(
+            model_capability_profile=ACICLOVIR_IV_CAPABILITY_PROFILE,
             population_generation_id=GENERATION_ID,
             population_root=population_root,
             dose_mg=400.0,
