@@ -33,6 +33,7 @@ from opentrials.adapters.osp import (
     OspCompoundMapping,
     OspInterventionProfile,
     OspInterventionTranslator,
+    OspOutputInterval,
     OspParameterAssignment,
     OspSimulationEngine,
     resolve_population_execution_lineage,
@@ -51,6 +52,7 @@ from opentrials.storage.results import (
     ResultSelectionMapping,
     normalize_osp_concentration_time_rows,
 )
+from opentrials.trials.schedule import ObservationSchedule
 from opentrials.trials.trial import RandomizationType, Trial
 
 PKML_PATH = Path("/Users/eshkanala/Library/R/arm64/4.6/library/ospsuite/extdata/Aciclovir.pkml")
@@ -95,6 +97,7 @@ def run_aciclovir_iv_trial(
     population_root: Path,
     output_root: Path,
     r_libs_user: str,
+    observation_schedule: ObservationSchedule | None = None,
     progress: ProgressCallback | None = None,
 ) -> AciclovirIvTrialRun:
     """Execute a real prospective multi-arm aciclovir IV trial through verified OSP.
@@ -105,6 +108,15 @@ def run_aciclovir_iv_trial(
     intervention must be exactly one IV aciclovir infusion at 0 min over
     10 min -- the one administration target this project has verified
     against OSP -- the dose amount itself is unconstrained.
+
+    ``observation_schedule``, when supplied, declares the trial-wide sample
+    timeline (separate from each arm's dosing timing) and is applied
+    identically to every arm's solver execution. The solver's actual output
+    times are read back and must match the declared schedule exactly (see
+    HANDOFF v0.5-B); PK endpoints are then computed only from those declared
+    sample times, not the solver's default dense grid. When omitted, the
+    solver's own default output grid is used, exactly as before this
+    parameter existed.
     """
     _notify(progress, "validating_trial")
     if trial.randomization is not RandomizationType.PARALLEL:
@@ -139,6 +151,13 @@ def run_aciclovir_iv_trial(
         allocation_id, trial=trial, generation_id=population_generation_id
     )
 
+    output_intervals = (
+        _to_osp_output_intervals(observation_schedule) if observation_schedule is not None else ()
+    )
+    declared_times_min = (
+        _declared_times_minutes(observation_schedule) if observation_schedule is not None else ()
+    )
+
     package = _model_package()
     arm_results: list[ArmExecutionResult] = []
     for arm in trial.arms:
@@ -162,9 +181,12 @@ def run_aciclovir_iv_trial(
             population_rows=arm_population_rows,
             expected_population_count=len(arm_population_rows),
             assignments=translation.plan.assignments,
+            output_intervals=output_intervals,
             r_libs_user=r_libs_user,
         )
         _verify_population_raw_result(raw_result, arm_run_id, len(arm_population_rows))
+        if observation_schedule is not None:
+            _verify_output_schedule(raw_result, declared_times_min)
 
         arm_directory = run_directory / "arms" / arm.arm_id
         raw_document = document("opentrials.osp-population-response", raw_result)
@@ -249,6 +271,14 @@ def run_aciclovir_iv_trial(
             "population_semantic_sha256": population_manifest.individuals.semantic_content_sha256,
             "population_count": population_manifest.actual_count,
             "allocation_id": allocation_id,
+            "observation_schedule": (
+                {
+                    "schedule_id": observation_schedule.schedule_id,
+                    "declared_times_min": list(declared_times_min),
+                }
+                if observation_schedule is not None
+                else None
+            ),
             "arms": {
                 arm.arm_id: {
                     "dose_mg": arm_doses[arm.arm_id],
@@ -348,6 +378,7 @@ def _execute_osp_population(
     population_rows: tuple[Mapping[str, object], ...],
     expected_population_count: int,
     assignments: tuple[OspParameterAssignment, ...],
+    output_intervals: tuple[OspOutputInterval, ...] = (),
     r_libs_user: str,
 ) -> RawSimulationResult:
     """Perform the external population execution; kept separate as the test seam."""
@@ -360,7 +391,49 @@ def _execute_osp_population(
         expected_pkml_sha256=PKML_SHA256,
         expected_administration_container=IV_CONTAINER,
         parameter_assignments=assignments,
+        output_intervals=output_intervals,
     )
+
+
+def _to_osp_output_intervals(schedule: ObservationSchedule) -> tuple[OspOutputInterval, ...]:
+    """Convert a declared ObservationSchedule into OSP output-grid windows (minutes)."""
+    return tuple(
+        OspOutputInterval(
+            start_time=window.start.to("min").value,
+            end_time=window.end.to("min").value,
+            resolution=1.0 / window.interval.to("min").value,
+            interval_name=f"{schedule.schedule_id}-{index}",
+        )
+        for index, window in enumerate(schedule.windows)
+    )
+
+
+def _declared_times_minutes(schedule: ObservationSchedule) -> tuple[float, ...]:
+    """The schedule's declared sample times in minutes, matching the OSP time axis."""
+    times: set[float] = set()
+    for window in schedule.windows:
+        times.update(window.declared_times("min"))
+    return tuple(sorted(times))
+
+
+def _verify_output_schedule(
+    result: RawSimulationResult, declared_times_min: Sequence[float]
+) -> None:
+    """Reject a run whose solver output times do not exactly match the declared schedule."""
+    if result.payload.get("output_schedule_applied") is not True:
+        raise ValueError("OSP execution did not apply the declared observation schedule.")
+    observed = result.payload.get("observed_output_times")
+    if not isinstance(observed, Sequence) or isinstance(observed, (str, bytes)):
+        raise ValueError("OSP execution did not report observed output times.")
+    observed_sorted = sorted(float(value) for value in observed)
+    declared_sorted = sorted(declared_times_min)
+    if len(observed_sorted) != len(declared_sorted) or any(
+        abs(a - b) > 1e-6 for a, b in zip(observed_sorted, declared_sorted, strict=True)
+    ):
+        raise ValueError(
+            "OSP solver output times do not match the declared observation schedule: "
+            f"observed {observed_sorted!r} vs. declared {declared_sorted!r}."
+        )
 
 
 def _verify_population_raw_result(

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 
 from opentrials.adapters.osp import (
@@ -38,7 +39,9 @@ from opentrials.trials import (
     EndpointAggregation,
     EndpointType,
     MissingnessRule,
+    ObservationSchedule,
     RandomizationType,
+    SamplingWindow,
     TimeWindow,
     Trial,
     TrialArm,
@@ -196,3 +199,62 @@ def test_prospective_three_arm_trial_executes_and_yields_distinct_arm_outcomes(
     # produce distinct simulated mean exposures -- not a claim about which
     # direction, just that the arms are genuinely different executions.
     assert len(set(round(value, 6) for value in cmax_means.values())) == 3
+
+
+def _assumed_min(value: float) -> ScientificValue:
+    return assumed(value, "min")
+
+
+def test_prospective_trial_with_declared_observation_schedule(tmp_path: Path) -> None:
+    if os.environ.get("OPENTRIALS_RUN_OSP_INTEGRATION") != "1":
+        pytest.skip("Set OPENTRIALS_RUN_OSP_INTEGRATION=1 to run against local OSP.")
+    r_libs_user = os.environ.get("OPENTRIALS_OSP_R_LIBS_USER")
+    if r_libs_user is None:
+        pytest.skip("Set OPENTRIALS_OSP_R_LIBS_USER to the ospsuite R library path.")
+
+    population_root = tmp_path / "populations"
+    population_store = PopulationArtifactStore(population_root)
+    population_manifest = generate_and_persist_population(population_store, r_libs_user)
+    generation_id = population_manifest.generation_id
+
+    # A realistic dense-then-sparse IV sampling protocol: q15min through the
+    # rising/peak phase (infusion ends at 10 min), then q60min through decline.
+    schedule = ObservationSchedule(
+        schedule_id="dense-then-sparse",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=_assumed_min(0), end=_assumed_min(60), interval=_assumed_min(15)
+            ),
+            SamplingWindow(
+                start=_assumed_min(60), end=_assumed_min(480), interval=_assumed_min(60)
+            ),
+        ),
+    )
+    expected_times = schedule.declared_times()
+
+    run = run_aciclovir_iv_trial(
+        dose_comparison_trial(),
+        population_generation_id=generation_id,
+        population_root=population_root,
+        output_root=tmp_path / "runs",
+        r_libs_user=r_libs_user,
+        observation_schedule=schedule,
+    )
+
+    assert run.population_count == POPULATION_SIZE
+    # The declared schedule must be exactly what every arm's persisted
+    # normalized concentration-time artifact actually contains -- not merely
+    # what the orchestration claimed to request.
+    for arm_result in run.arms:
+        table = pq.read_table(arm_result.result_directory / "concentration_time.parquet")
+        rows = table.to_pylist()
+        first_subject = rows[0]["subject_id"]
+        actual_times = sorted({row["time"] for row in rows if row["subject_id"] == first_subject})
+        assert actual_times == list(expected_times)
+
+    print(
+        "\nLive schedule proof -- declared sample times (min):",
+        expected_times,
+        "-- verified present in every arm's normalized concentration-time artifact.",
+    )

@@ -298,6 +298,42 @@ run_worker <- function() {
     }
   }
 
+  # Optional declared observation schedule: applied only when supplied, so the
+  # default solver output grid is completely unchanged for every existing
+  # caller. Verified empirically that addOutputInterval() lets the solver's
+  # output grid be set exactly (see HANDOFF v0.5-B); Python performs the
+  # authoritative accept/reject decision from the observed_output_times this
+  # worker reports back, matching the existing raw-evidence-then-verify split.
+  output_intervals <- payload$output_intervals
+  schedule_applied <- !is.null(output_intervals) && length(output_intervals) > 0
+  if (schedule_applied) {
+    clearOutputIntervals(simulation)
+    for (index in seq_along(output_intervals)) {
+      window <- output_intervals[[index]]
+      valid <- is.list(window) &&
+        is.numeric(window$start_time) && length(window$start_time) == 1 &&
+        is.numeric(window$end_time) && length(window$end_time) == 1 &&
+        is.numeric(window$resolution) && length(window$resolution) == 1 && window$resolution > 0 &&
+        is.character(window$interval_name) && nzchar(window$interval_name)
+      if (!valid) {
+        stop(
+          sprintf(
+            "output_intervals[%d] requires start_time, end_time, resolution, interval_name.",
+            index
+          ),
+          call. = FALSE
+        )
+      }
+      addOutputInterval(
+        simulation,
+        startTime = window$start_time,
+        endTime = window$end_time,
+        resolution = window$resolution,
+        intervalName = window$interval_name
+      )
+    }
+  }
+
   simulation_results <- runSimulations(simulations = simulation, population = population)
   verification$solver_executed <- TRUE
   if (length(simulation_results) != 1) {
@@ -315,6 +351,7 @@ run_worker <- function() {
   result_rows <- lapply(seq_len(nrow(result_frame)), function(index) {
     as.list(result_frame[index, , drop = FALSE])
   })
+  observed_output_times <- if (schedule_applied) as.list(sort(unique(result_frame$Time))) else NULL
 
   write_response(list(
     status = "SUCCEEDED",
@@ -326,6 +363,8 @@ run_worker <- function() {
     simulation_name = simulation$name,
     population_count = reconstructed_count,
     result_individual_ids = result_individual_ids,
+    output_schedule_applied = schedule_applied,
+    observed_output_times = observed_output_times,
     execution_verification = verification,
     raw_result_rows = result_rows
   ))

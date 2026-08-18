@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from opentrials.adapters.osp.intervention import OspParameterAssignment
 from opentrials.core.serialization import SchemaDocument, document
 from opentrials.models.manifest import ModelType
@@ -45,6 +47,24 @@ class OspExecutionVerificationError(OspWorkerError):
     def __init__(self, message: str, verification: Mapping[str, Any] | None) -> None:
         super().__init__(message)
         self.verification = verification
+
+
+class OspOutputInterval(BaseModel):
+    """One evenly-spaced solver output window, verified via ``addOutputInterval``.
+
+    ``start_time``/``end_time``/``resolution`` are already in the model's own
+    time unit (minutes, for the pinned aciclovir model); converting from a
+    declared ``ObservationSchedule`` is the caller's responsibility.
+    ``resolution`` is OSP's own convention: points per unit time, i.e.
+    ``1 / interval``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    start_time: float = Field(ge=0)
+    end_time: float
+    resolution: float = Field(gt=0)
+    interval_name: str = Field(min_length=1)
 
 
 def _file_uri_to_path(artifact_uri: str) -> Path:
@@ -210,6 +230,7 @@ class OspSimulationEngine:
         expected_pkml_sha256: str,
         expected_administration_container: str | None = None,
         parameter_assignments: tuple[OspParameterAssignment, ...] = (),
+        output_intervals: tuple[OspOutputInterval, ...] = (),
     ) -> RawSimulationResult:
         """Reconstruct a verified population and batch-run it through PBPK.
 
@@ -218,7 +239,11 @@ class OspSimulationEngine:
         caller; this adapter performs no population generation or trust
         decision of its own. The PKML hash is always required here (unlike
         the single-individual ``run()``): population execution is always
-        hash-pinned.
+        hash-pinned. ``output_intervals``, when supplied, declares the
+        solver's output time grid explicitly (verified via
+        ``addOutputInterval`` -- see HANDOFF v0.5-B); when empty (the
+        default), the solver's own default dense grid is used unchanged,
+        exactly as before this parameter existed.
         """
         package = prepared_run.model_packages[0]
         pkml_path = _file_uri_to_path(package.artifact_uri)
@@ -232,6 +257,16 @@ class OspSimulationEngine:
             "population_rows": [dict(row) for row in population_rows],
             "expected_population_count": expected_population_count,
         }
+        if output_intervals:
+            payload["output_intervals"] = [
+                {
+                    "start_time": interval.start_time,
+                    "end_time": interval.end_time,
+                    "resolution": interval.resolution,
+                    "interval_name": interval.interval_name,
+                }
+                for interval in output_intervals
+            ]
         if parameter_assignments:
             if expected_administration_container is None:
                 raise ValueError("Verified assignments require an administration container.")

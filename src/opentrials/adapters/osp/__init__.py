@@ -10,6 +10,7 @@ from opentrials.adapters.osp.capabilities import (
 from opentrials.adapters.osp.cohort import osp_population_field_catalog
 from opentrials.adapters.osp.engine import (
     OspExecutionVerificationError,
+    OspOutputInterval,
     OspSimulationEngine,
     OspWorkerError,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "OspPopulationTranslation",
     "OspPopulationTranslator",
     "OspExecutionVerificationError",
+    "OspOutputInterval",
     "OspSimulationEngine",
     "OspWorkerError",
     "PopulationFeatureStatus",

@@ -14,6 +14,7 @@ from opentrials.trials.endpoints import (
     MissingnessRule,
     TimeWindow,
 )
+from opentrials.trials.schedule import ObservationSchedule, SamplingWindow
 from opentrials.trials.trial import RandomizationType, Trial, TrialArm
 
 __all__ = [
@@ -27,7 +28,9 @@ __all__ = [
     "EndpointAggregation",
     "EndpointType",
     "MissingnessRule",
+    "ObservationSchedule",
     "RandomizationType",
+    "SamplingWindow",
     "TimeWindow",
     "Trial",
     "TrialArm",

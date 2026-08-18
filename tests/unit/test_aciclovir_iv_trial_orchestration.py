@@ -24,7 +24,9 @@ from opentrials.trials import (
     EndpointAggregation,
     EndpointType,
     MissingnessRule,
+    ObservationSchedule,
     RandomizationType,
+    SamplingWindow,
     TimeWindow,
     Trial,
     TrialArm,
@@ -156,6 +158,171 @@ def fake_execution(
             "raw_result_rows": rows,
         },
     )
+
+
+def fake_execution_with_schedule(
+    *,
+    prepared_run: object,
+    population_rows: object,
+    output_intervals: tuple[object, ...] = (),
+    **_: object,
+) -> RawSimulationResult:
+    individual_ids = sorted(
+        int(row["IndividualId"]) for row in population_rows  # type: ignore[union-attr,index]
+    )
+    declared_times: list[float] = []
+    for interval in output_intervals:
+        start = interval.start_time  # type: ignore[attr-defined]
+        end = interval.end_time  # type: ignore[attr-defined]
+        step = 1.0 / interval.resolution  # type: ignore[attr-defined]
+        count = round((end - start) / step)
+        declared_times.extend(start + index * step for index in range(count + 1))
+    declared_times = sorted(set(declared_times))
+
+    rows = []
+    for individual_id in individual_ids:
+        cmax = 10.0 * (individual_id + 1)
+        for time in declared_times:
+            rows.append(
+                {
+                    "IndividualId": individual_id,
+                    "Time": time,
+                    "simulationValues": cmax * (1 - time / (2 * max(declared_times))),
+                    "unit": "umol/L",
+                    "paths": TOTAL_PLASMA_PATH,
+                }
+            )
+    return RawSimulationResult(
+        run_id=prepared_run.run_id,  # type: ignore[attr-defined]
+        engine_id="osp",
+        generated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        payload={
+            "population_count": len(individual_ids),
+            "result_individual_ids": individual_ids,
+            "output_schedule_applied": bool(output_intervals),
+            "observed_output_times": declared_times if output_intervals else None,
+            "execution_verification": {
+                "model_hash_verification": {"verified": True},
+                "route_container_verification": {"verified": True},
+                "solver_executed": True,
+                "parameter_assignments": [{"verified": True}] * 3,
+            },
+            "raw_result_rows": rows,
+        },
+    )
+
+
+def test_multi_arm_trial_with_observation_schedule_computes_endpoints_from_declared_times(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    population_root = build_population(tmp_path)
+    monkeypatch.setattr(
+        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population",
+        fake_execution_with_schedule,
+    )
+    schedule = ObservationSchedule(
+        schedule_id="sparse-proof",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=ScientificValue(value=0, unit="min", value_type=ValueType.ASSUMED),
+                end=ScientificValue(value=60, unit="min", value_type=ValueType.ASSUMED),
+                interval=ScientificValue(value=15, unit="min", value_type=ValueType.ASSUMED),
+            ),
+        ),
+    )
+
+    result = run_aciclovir_iv_trial(
+        three_arm_trial(),
+        population_generation_id=GENERATION_ID,
+        population_root=population_root,
+        output_root=tmp_path / "runs",
+        r_libs_user="/fake/r/libs",
+        observation_schedule=schedule,
+    )
+
+    for arm_result in result.arms:
+        sample_times = {
+            round(endpoint.value, 6)
+            for endpoint in arm_result.endpoints
+            if endpoint.endpoint_type == "TMAX"
+        }
+        assert sample_times <= {0.0, 15.0, 30.0, 45.0, 60.0}
+
+    top_manifest = json.loads((result.run_directory / "manifest.json").read_text(encoding="utf-8"))
+    assert top_manifest["payload"]["observation_schedule"]["schedule_id"] == "sparse-proof"
+    assert top_manifest["payload"]["observation_schedule"]["declared_times_min"] == [
+        0.0,
+        15.0,
+        30.0,
+        45.0,
+        60.0,
+    ]
+
+
+def test_multi_arm_trial_rejects_mismatched_observed_output_times(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    population_root = build_population(tmp_path)
+
+    def wrong_schedule_execution(
+        *, prepared_run: object, population_rows: object, **_: object
+    ) -> RawSimulationResult:
+        individual_ids = sorted(
+            int(row["IndividualId"]) for row in population_rows  # type: ignore[union-attr,index]
+        )
+        return RawSimulationResult(
+            run_id=prepared_run.run_id,  # type: ignore[attr-defined]
+            engine_id="osp",
+            generated_at=datetime(2026, 1, 1, tzinfo=UTC),
+            payload={
+                "population_count": len(individual_ids),
+                "result_individual_ids": individual_ids,
+                "output_schedule_applied": True,
+                "observed_output_times": [0.0, 5.0],  # does not match declared [0, 15, 30, 45, 60]
+                "execution_verification": {
+                    "model_hash_verification": {"verified": True},
+                    "route_container_verification": {"verified": True},
+                    "solver_executed": True,
+                    "parameter_assignments": [{"verified": True}] * 3,
+                },
+                "raw_result_rows": [
+                    {
+                        "IndividualId": individual_ids[0],
+                        "Time": 0,
+                        "simulationValues": 1.0,
+                        "unit": "umol/L",
+                        "paths": TOTAL_PLASMA_PATH,
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(
+        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population",
+        wrong_schedule_execution,
+    )
+    schedule = ObservationSchedule(
+        schedule_id="mismatch-proof",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=ScientificValue(value=0, unit="min", value_type=ValueType.ASSUMED),
+                end=ScientificValue(value=60, unit="min", value_type=ValueType.ASSUMED),
+                interval=ScientificValue(value=15, unit="min", value_type=ValueType.ASSUMED),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="do not match the declared observation schedule"):
+        run_aciclovir_iv_trial(
+            three_arm_trial(),
+            population_generation_id=GENERATION_ID,
+            population_root=population_root,
+            output_root=tmp_path / "runs",
+            r_libs_user="/fake/r/libs",
+            observation_schedule=schedule,
+        )
 
 
 def test_multi_arm_trial_persists_lineage_aware_artifacts_per_arm(
