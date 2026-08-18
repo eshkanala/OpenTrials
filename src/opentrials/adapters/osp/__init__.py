@@ -28,6 +28,10 @@ from opentrials.adapters.osp.intervention import (
     OspInterventionTranslator,
     OspParameterAssignment,
 )
+from opentrials.adapters.osp.observed_data import (
+    OspObservedDataWorkerError,
+    read_observed_dataset_pkml,
+)
 from opentrials.adapters.osp.physiology_targets import (
     UnsupportedPhysiologyTargetError,
     physiology_coverage_for,
@@ -86,9 +90,11 @@ __all__ = [
     "OspPopulationTranslation",
     "OspPopulationTranslator",
     "OspExecutionVerificationError",
+    "OspObservedDataWorkerError",
     "OspOutputInterval",
     "OspSimulationEngine",
     "OspWorkerError",
+    "read_observed_dataset_pkml",
     "PopulationFeatureStatus",
     "PopulationTranslationReport",
     "UnsupportedPopulationFeatureError",
