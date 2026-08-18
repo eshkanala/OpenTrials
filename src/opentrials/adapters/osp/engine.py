@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import tempfile
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +16,7 @@ from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from opentrials.adapters.osp.csv_transport import read_result_csv_rows, write_population_csv
 from opentrials.adapters.osp.intervention import OspParameterAssignment
 from opentrials.core.serialization import SchemaDocument, document
 from opentrials.models.manifest import ModelType
@@ -33,6 +36,13 @@ WORKER_SCHEMA_VERSION = "1.0.0"
 POPULATION_EXECUTION_WORKER_REQUEST_SCHEMA = "opentrials.osp.population-execution-worker-request"
 POPULATION_EXECUTION_WORKER_RESPONSE_SCHEMA = "opentrials.osp.population-execution-worker-response"
 POPULATION_EXECUTION_WORKER_SCHEMA_VERSION = "1.0.0"
+POPULATION_EXECUTION_CSV_WORKER_REQUEST_SCHEMA = (
+    "opentrials.osp.population-execution-csv-worker-request"
+)
+POPULATION_EXECUTION_CSV_WORKER_RESPONSE_SCHEMA = (
+    "opentrials.osp.population-execution-csv-worker-response"
+)
+POPULATION_EXECUTION_CSV_WORKER_SCHEMA_VERSION = "1.0.0"
 DEFAULT_FRAMEWORK_RSCRIPT = Path("/Library/Frameworks/R.framework/Resources/bin/Rscript")
 DEFAULT_DOTNET_ROOT = "/opt/homebrew/opt/dotnet@8/libexec"
 
@@ -93,6 +103,7 @@ class OspSimulationEngine:
         rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
         worker_path: Path | None = None,
         population_worker_path: Path | None = None,
+        population_csv_worker_path: Path | None = None,
         dotnet_root: str = DEFAULT_DOTNET_ROOT,
         r_libs_user: str | None = None,
         timeout_seconds: float = 300.0,
@@ -102,6 +113,9 @@ class OspSimulationEngine:
         self._population_worker_path = population_worker_path or Path(__file__).with_name(
             "run_population_simulation.R"
         )
+        self._population_csv_worker_path = population_csv_worker_path or Path(
+            __file__
+        ).with_name("run_population_simulation_csv.R")
         self._dotnet_root = dotnet_root
         self._r_libs_user = r_libs_user
         self._timeout_seconds = timeout_seconds
@@ -344,6 +358,160 @@ class OspSimulationEngine:
             generated_at=generated_at,
             payload=payload,
         )
+
+    def run_population_csv(
+        self,
+        prepared_run: PreparedRun,
+        *,
+        population_columns: tuple[str, ...],
+        population_rows: tuple[Mapping[str, Any], ...],
+        expected_population_count: int,
+        expected_pkml_sha256: str,
+        expected_administration_container: str | None = None,
+        parameter_assignments: tuple[OspParameterAssignment, ...] = (),
+        output_intervals: tuple[OspOutputInterval, ...] = (),
+        population_readback_columns: tuple[str, ...] = (),
+    ) -> RawSimulationResult:
+        """CSV-file-transport population execution -- see HANDOFF v0.6-C.
+
+        Identical contract to ``run_population()`` -- same verified-table
+        precondition, same verification semantics, same returned
+        ``RawSimulationResult`` shape, including ``raw_result_rows`` in
+        exactly the row-dict form the JSON transport produces. Internally,
+        the population table crosses the Python<->R boundary as a CSV file
+        for OSP's own ``loadPopulation()``, and the raw result crosses back
+        as OSP's own ``exportResultsToCSV()`` output, read back and
+        unpivoted into the same row shape here -- eliminating the JSON
+        row-list-construction-plus-``toJSON`` step that a v0.6-C capability
+        probe measured as the dominant cost at scale (~23s of R-side work
+        for a 98,200-row N=100 result, versus ~0.16s to export as CSV).
+        """
+        package = prepared_run.model_packages[0]
+        pkml_path = _file_uri_to_path(package.artifact_uri)
+        if expected_population_count != len(population_rows):
+            raise ValueError("expected_population_count does not match the supplied row count.")
+
+        with tempfile.TemporaryDirectory(
+            prefix="opentrials-osp-population-csv-"
+        ) as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            population_csv_path = temporary_path / "population.csv"
+            result_csv_path = temporary_path / "result.csv"
+            write_started = time.perf_counter()
+            write_population_csv(population_columns, population_rows, population_csv_path)
+            population_csv_write_seconds = time.perf_counter() - write_started
+
+            payload: dict[str, Any] = {
+                "run_id": prepared_run.run_id,
+                "pkml_path": str(pkml_path),
+                "expected_pkml_sha256": expected_pkml_sha256.removeprefix("sha256:"),
+                "population_csv_path": str(population_csv_path),
+                "result_csv_path": str(result_csv_path),
+                "expected_population_count": expected_population_count,
+            }
+            if output_intervals:
+                payload["output_intervals"] = [
+                    {
+                        "start_time": interval.start_time,
+                        "end_time": interval.end_time,
+                        "resolution": interval.resolution,
+                        "interval_name": interval.interval_name,
+                    }
+                    for interval in output_intervals
+                ]
+            if population_readback_columns:
+                payload["population_readback_columns"] = list(population_readback_columns)
+            if parameter_assignments:
+                if expected_administration_container is None:
+                    raise ValueError("Verified assignments require an administration container.")
+                payload.update(
+                    {
+                        "expected_administration_container": expected_administration_container,
+                        "parameter_assignments": [
+                            {
+                                "path": assignment.parameter_path,
+                                "value": assignment.value,
+                                "unit": assignment.unit,
+                                "source_field": assignment.source_field,
+                            }
+                            for assignment in parameter_assignments
+                        ],
+                    }
+                )
+            request = document(
+                POPULATION_EXECUTION_CSV_WORKER_REQUEST_SCHEMA,
+                payload,
+                POPULATION_EXECUTION_CSV_WORKER_SCHEMA_VERSION,
+            )
+
+            request_path = temporary_path / "request.json"
+            response_path = temporary_path / "response.json"
+            request_path.write_text(request.canonical_json(), encoding="utf-8")
+            completed = self._invoke_worker(
+                self._population_csv_worker_path, request_path, response_path
+            )
+            if not response_path.is_file():
+                raise OspWorkerError(
+                    "OSP CSV population worker completed without writing a response artifact."
+                )
+            response = self._read_response(
+                response_path,
+                expected_schema=POPULATION_EXECUTION_CSV_WORKER_RESPONSE_SCHEMA,
+                expected_schema_version=POPULATION_EXECUTION_CSV_WORKER_SCHEMA_VERSION,
+            )
+            if completed.returncode != 0:
+                worker_message = completed.stderr.strip() or completed.stdout.strip()
+                verification = response.payload.get("execution_verification")
+                if isinstance(verification, dict):
+                    raise OspExecutionVerificationError(
+                        "OSP CSV population execution verification blocked the solver: "
+                        f"{response.payload.get('error')}",
+                        verification,
+                    )
+                raise OspWorkerError(
+                    f"OSP CSV population worker failed with exit code {completed.returncode}: "
+                    f"{worker_message}"
+                )
+
+            response_payload = response.payload
+            if response_payload.get("status") != "SUCCEEDED":
+                raise OspWorkerError(
+                    f"OSP CSV population worker returned a failed response: {response_payload!r}"
+                )
+            if response_payload.get("run_id") != prepared_run.run_id:
+                raise OspWorkerError(
+                    "OSP CSV population worker response run ID does not match the submitted run."
+                )
+            generated_at = _parse_generated_at(response_payload.get("generated_at"))
+
+            if not result_csv_path.is_file():
+                raise OspWorkerError(
+                    "OSP CSV population worker did not produce the expected result CSV file."
+                )
+            reported_hash = response_payload.get("result_csv_sha256")
+            actual_hash = hashlib.sha256(result_csv_path.read_bytes()).hexdigest()
+            if not isinstance(reported_hash, str) or reported_hash.lower() != actual_hash.lower():
+                raise OspWorkerError(
+                    "Result CSV file hash does not match what the worker reported -- refusing "
+                    "to trust its contents."
+                )
+            read_started = time.perf_counter()
+            raw_rows = read_result_csv_rows(result_csv_path)
+            result_csv_read_seconds = time.perf_counter() - read_started
+
+            merged_payload = dict(response_payload)
+            merged_payload["raw_result_rows"] = [dict(row) for row in raw_rows]
+            merged_payload.pop("result_csv_sha256", None)
+            merged_payload["python_timing"] = {
+                "population_csv_write_seconds": population_csv_write_seconds,
+                "result_csv_read_seconds": result_csv_read_seconds,
+            }
+            return RawSimulationResult(
+                run_id=prepared_run.run_id,
+                engine_id=self.engine_id,
+                generated_at=generated_at,
+                payload=merged_payload,
+            )
 
     def extract(self, raw_result: RawSimulationResult) -> SimulationResult:
         if raw_result.engine_id != self.engine_id:

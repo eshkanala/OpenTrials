@@ -29,7 +29,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field
@@ -159,6 +159,7 @@ def run_aciclovir_iv_physiology_population(
     output_root: Path,
     r_libs_user: str,
     observation_schedule: ObservationSchedule | None = None,
+    transport: Literal["json", "csv"] = "json",
     progress: ProgressCallback | None = None,
 ) -> AciclovirIvPhysiologyPopulationRun:
     """Execute the pinned Aciclovir IV model over one verified OTPHYS population.
@@ -171,7 +172,10 @@ def run_aciclovir_iv_physiology_population(
     physiology-state column is also read back from the actual reconstructed
     OSP population (not merely the request payload) and verified to match
     what OTPHYS declared, exactly the same "verify rather than trust"
-    discipline used for dose and observation-schedule execution.
+    discipline used for dose and observation-schedule execution. ``transport``
+    selects the Python<->R population/result transport (see HANDOFF v0.6-C);
+    ``"json"`` is the unchanged default, ``"csv"`` is the faster file-based
+    alternative -- both produce identical downstream scientific results.
     """
     _notify(progress, "verifying_physiology_population")
     physiology_store = PhysiologyPopulationArtifactStore(physiology_root)
@@ -240,6 +244,7 @@ def run_aciclovir_iv_physiology_population(
         assignments=translation.plan.assignments,
         output_intervals=output_intervals,
         population_readback_columns=(physiology_manifest.osp_parameter_path,),
+        transport=transport,
         r_libs_user=r_libs_user,
     )
     _verify_population_raw_result(raw_result, run_id, physiology_manifest.individuals.rows)
@@ -490,11 +495,13 @@ def _execute_osp_population(
     assignments: tuple[OspParameterAssignment, ...],
     output_intervals: tuple[OspOutputInterval, ...] = (),
     population_readback_columns: tuple[str, ...] = (),
+    transport: Literal["json", "csv"] = "json",
     r_libs_user: str,
 ) -> RawSimulationResult:
     """Perform the external population execution; kept separate as the test seam."""
     engine = OspSimulationEngine(r_libs_user=r_libs_user)
-    return engine.run_population(
+    method = engine.run_population_csv if transport == "csv" else engine.run_population
+    return method(
         prepared_run,
         population_columns=population_columns,
         population_rows=population_rows,

@@ -120,6 +120,23 @@ def test_population_run_persists_lineage_aware_artifacts_and_reports_progress(
     assert result.population_count == 3
     assert {endpoint.subject_id for endpoint in result.endpoints} == {"0", "1", "2"}
 
+    # v0.6-C: every run records a per-stage timing breakdown; the JSON
+    # transport has no R-side/Python-side transport sub-stage detail.
+    expected_stage_names = {
+        "verify_otpgen",
+        "translate_intervention",
+        "execute_population",
+        "persist_raw",
+        "normalize_results",
+        "pk_analysis",
+        "resolve_lineage",
+        "persist_endpoints",
+        "total",
+    }
+    assert expected_stage_names <= set(result.stage_seconds)
+    assert not any(key.startswith(("r_", "python_")) for key in result.stage_seconds)
+    assert all(value >= 0 for value in result.stage_seconds.values())
+
     endpoint_manifest = json.loads(
         (result.endpoint_directory / "manifest.json").read_text(encoding="utf-8")
     )["payload"]

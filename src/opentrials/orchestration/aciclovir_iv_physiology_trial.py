@@ -27,6 +27,7 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,6 +99,7 @@ def run_aciclovir_iv_physiology_trial(
     output_root: Path,
     r_libs_user: str,
     observation_schedule: ObservationSchedule | None = None,
+    transport: Literal["json", "csv"] = "json",
     progress: ProgressCallback | None = None,
 ) -> AciclovirIvPhysiologyTrialRun:
     """Execute one prospective trial across every declared physiological state.
@@ -152,6 +154,7 @@ def run_aciclovir_iv_physiology_trial(
             output_root=run_directory / "states",
             r_libs_user=r_libs_user,
             observation_schedule=observation_schedule,
+            transport=transport,
             progress=_state_progress(progress, declaration.state_id),
         )
         endpoint_stores[declaration.state_id] = PkEndpointArtifactStore(

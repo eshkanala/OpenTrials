@@ -16,11 +16,12 @@ tests can replace it without requiring R.
 from __future__ import annotations
 
 import platform
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field
@@ -80,6 +81,7 @@ class AciclovirIvPopulationRun(BaseModel):
     population_generation_id: str = Field(pattern=r"^OTPGEN-[A-Za-z0-9_-]+$")
     population_count: int = Field(gt=0)
     endpoints: tuple[PkEndpointResult, ...] = Field(min_length=1)
+    stage_seconds: dict[str, float] = Field(default_factory=dict)
 
 
 def run_aciclovir_iv_population(
@@ -89,6 +91,7 @@ def run_aciclovir_iv_population(
     dose_mg: float,
     output_root: Path,
     r_libs_user: str,
+    transport: Literal["json", "csv"] = "json",
     progress: ProgressCallback | None = None,
 ) -> AciclovirIvPopulationRun:
     """Execute the pinned Aciclovir IV model over one whole verified OTPGEN population.
@@ -96,8 +99,22 @@ def run_aciclovir_iv_population(
     ``population_root`` must contain the ``population_generation_id`` artifact
     already written by ``PopulationArtifactStore``. This function verifies it
     before ever handing the table to the OSP worker; the worker performs no
-    trust decision of its own.
+    trust decision of its own. ``transport`` selects how the population/result
+    tables cross the Python<->R boundary: ``"json"`` (default, unchanged
+    since v0.1) embeds them in the request/response JSON; ``"csv"`` (v0.6-C)
+    uses OSP's own ``loadPopulation()``/``exportResultsToCSV()`` file-based
+    transport, which a capability probe measured as dramatically faster at
+    scale with identical downstream scientific results -- see HANDOFF v0.6-C.
     """
+    stage_seconds: dict[str, float] = {}
+    stage_started = time.perf_counter()
+
+    def _mark(stage: str) -> None:
+        nonlocal stage_started
+        now = time.perf_counter()
+        stage_seconds[stage] = now - stage_started
+        stage_started = now
+
     _notify(progress, "verifying_population")
     population_store = PopulationArtifactStore(population_root)
     population_manifest = population_store.verify_population(population_generation_id)
@@ -106,6 +123,7 @@ def run_aciclovir_iv_population(
     )
     population_columns = tuple(population_table.column_names)
     population_rows = tuple(dict(row) for row in population_table.to_pylist())
+    _mark("verify_otpgen")
 
     if dose_mg not in SUPPORTED_DOSES_MG:
         raise ValueError("This workflow accepts only 125 mg or 250 mg infusions.")
@@ -115,6 +133,7 @@ def run_aciclovir_iv_population(
     intervention = _intervention(dose_mg)
     translation = OspInterventionTranslator(_intervention_profile()).translate(intervention)
     assert translation.plan is not None
+    _mark("translate_intervention")
 
     run_id = f"OTR-aciclovir-iv-population-{uuid.uuid4().hex}"
     run_directory = output_root / run_id
@@ -137,9 +156,22 @@ def run_aciclovir_iv_population(
         population_rows=population_rows,
         expected_population_count=population_manifest.actual_count,
         assignments=translation.plan.assignments,
+        transport=transport,
         r_libs_user=r_libs_user,
     )
     _verify_population_raw_result(raw_result, run_id, population_manifest.actual_count)
+    _mark("execute_population")
+    # CSV transport reports its own internal R-side and Python-side stage
+    # timing (see HANDOFF v0.6-C); fold it in as detail without double
+    # counting it into the stage totals above.
+    r_timing = raw_result.payload.get("timing")
+    python_transport_timing = raw_result.payload.get("python_timing")
+    if isinstance(r_timing, dict):
+        stage_seconds.update({f"r_{key}": value for key, value in r_timing.items()})
+    if isinstance(python_transport_timing, dict):
+        stage_seconds.update(
+            {f"python_{key}": value for key, value in python_transport_timing.items()}
+        )
 
     _notify(progress, "persisting_raw")
     raw_document = document("opentrials.osp-population-response", raw_result)
@@ -147,6 +179,7 @@ def run_aciclovir_iv_population(
     _write_document(raw_path, raw_document)
     raw_hash = raw_document.sha256()
     verification_hash = sha256(raw_result.payload["execution_verification"])
+    _mark("persist_raw")
 
     rows = _selected_raw_rows(raw_result.payload)
     selection = ResultSelectionMapping(
@@ -171,11 +204,13 @@ def run_aciclovir_iv_population(
         selection=selection,
     )
     result_store.verify_result(result_id)
+    _mark("normalize_results")
 
     normalized_rows = normalize_osp_concentration_time_rows(rows, selection)
     endpoints = calculate_pk_endpoints(
         normalized_rows, result_manifest.concentration_time.semantic_content_sha256
     )
+    _mark("pk_analysis")
 
     _notify(progress, "resolving_lineage")
     result_individual_ids = raw_result.payload["result_individual_ids"]
@@ -188,6 +223,7 @@ def run_aciclovir_iv_population(
     )
     endpoint_subjects = {endpoint.subject_id for endpoint in endpoints}
     subject_lineage = {subject_id: full_lineage[subject_id] for subject_id in endpoint_subjects}
+    _mark("resolve_lineage")
 
     endpoint_id = f"OTPK-{run_id.removeprefix('OTR-')}"
     endpoint_store = PkEndpointArtifactStore(run_directory / "endpoints")
@@ -204,6 +240,10 @@ def run_aciclovir_iv_population(
         subject_lineage=subject_lineage,
     )
     endpoint_store.verify_endpoints(endpoint_id)
+    _mark("persist_endpoints")
+    stage_seconds["total"] = sum(
+        value for key, value in stage_seconds.items() if not key.startswith(("r_", "python_"))
+    )
 
     _notify(progress, "writing_manifest")
     manifest = document(
@@ -214,6 +254,7 @@ def run_aciclovir_iv_population(
             "population_semantic_sha256": population_manifest.individuals.semantic_content_sha256,
             "population_count": population_manifest.actual_count,
             "dose_mg": dose_mg,
+            "transport": transport,
             "model_sha256": package.artifact_hash,
             "raw_sha256": raw_hash,
             "result_artifact_semantic_sha256": (
@@ -222,6 +263,7 @@ def run_aciclovir_iv_population(
             "endpoint_semantic_sha256": endpoint_manifest.endpoints.semantic_content_sha256,
             "verification_evidence_sha256": verification_hash,
             "software_versions": _software_versions(r_libs_user),
+            "stage_seconds": stage_seconds,
             "artifacts": {
                 "population_manifest": "population_manifest.json",
                 "raw_response": "raw/osp_response.json",
@@ -241,6 +283,7 @@ def run_aciclovir_iv_population(
         population_generation_id=population_generation_id,
         population_count=population_manifest.actual_count,
         endpoints=endpoints,
+        stage_seconds=stage_seconds,
     )
 
 
@@ -355,11 +398,13 @@ def _execute_osp_population(
     population_rows: tuple[Mapping[str, object], ...],
     expected_population_count: int,
     assignments: tuple[OspParameterAssignment, ...],
+    transport: Literal["json", "csv"] = "json",
     r_libs_user: str,
 ) -> RawSimulationResult:
     """Perform the external population execution; kept separate as the test seam."""
     engine = OspSimulationEngine(r_libs_user=r_libs_user)
-    return engine.run_population(
+    method = engine.run_population_csv if transport == "csv" else engine.run_population
+    return method(
         prepared_run,
         population_columns=population_columns,
         population_rows=population_rows,
