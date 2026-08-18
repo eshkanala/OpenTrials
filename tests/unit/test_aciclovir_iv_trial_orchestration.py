@@ -15,9 +15,13 @@ from opentrials.orchestration.aciclovir_iv_trial import TOTAL_PLASMA_PATH, run_a
 from opentrials.patient import PopulationSpec
 from opentrials.simulation.engine import RawSimulationResult
 from opentrials.storage import (
+    ArmComparisonArtifactStore,
+    PkEndpointArtifactStore,
     PopulationArtifactStore,
     PopulationGenerationProvenance,
     PopulationGeneratorProvenance,
+    TrialArmAllocationArtifactStore,
+    TrialRunArtifactStore,
 )
 from opentrials.trials import (
     Endpoint,
@@ -347,7 +351,12 @@ def test_multi_arm_trial_persists_lineage_aware_artifacts_per_arm(
     assert stages[1] == "verifying_population"
     assert "allocating_arms" in stages
     assert {"executing_arm:low", "executing_arm:standard", "executing_arm:high"} <= set(stages)
-    assert stages[-2:] == ["writing_manifest", "completed"]
+    assert stages[-4:] == [
+        "writing_manifest",
+        "comparing_arms",
+        "writing_trial_record",
+        "completed",
+    ]
 
     assert result.population_count == POPULATION_SIZE
     assert len(result.arms) == 3
@@ -419,3 +428,57 @@ def test_multi_arm_trial_rejects_non_aciclovir_arm(tmp_path: Path) -> None:
             output_root=tmp_path / "runs",
             r_libs_user="/fake/r/libs",
         )
+
+
+def test_trial_produces_verifiable_comparison_and_top_level_ottrial_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    population_root = build_population(tmp_path)
+    monkeypatch.setattr(
+        "opentrials.orchestration.aciclovir_iv_trial._execute_osp_population", fake_execution
+    )
+
+    result = run_aciclovir_iv_trial(
+        three_arm_trial(),
+        population_generation_id=GENERATION_ID,
+        population_root=population_root,
+        output_root=tmp_path / "runs",
+        r_libs_user="/fake/r/libs",
+    )
+
+    populations = PopulationArtifactStore(population_root)
+    allocation_store = TrialArmAllocationArtifactStore(
+        result.run_directory / "allocation", population_store=populations
+    )
+    comparison_store = ArmComparisonArtifactStore(result.run_directory / "comparison")
+    comparison_manifest = comparison_store.verify_comparison(result.comparison_id)
+    assert comparison_manifest.allocation_id == result.allocation_id
+    assert set(comparison_manifest.arm_endpoint_ids) == {"low", "standard", "high"}
+    # 3 arms x 3 endpoint types (CMAX/TMAX/AUC_0_LAST) x C(3,2) pairs = 9 pairwise rows.
+    assert comparison_manifest.pairwise_comparisons.rows == 9
+    assert comparison_manifest.arm_summaries.rows == 9  # 3 arms x 3 endpoint types
+
+    trial_run_store = TrialRunArtifactStore(result.run_directory / "trial_run")
+    endpoint_stores = {
+        arm_result.arm_id: PkEndpointArtifactStore(
+            result.run_directory / "arms" / arm_result.arm_id / "endpoints"
+        )
+        for arm_result in result.arms
+    }
+    verified = trial_run_store.verify_trial_run(
+        result.trial_run_id,
+        population_store=populations,
+        allocation_store=allocation_store,
+        endpoint_stores=endpoint_stores,
+        comparison_store=comparison_store,
+    )
+    assert verified.trial_id == "ACICLOVIR-DOSE-COMPARISON"
+    assert verified.allocation_id == result.allocation_id
+    assert verified.comparison_id == result.comparison_id
+    assert {arm_record.arm_id for arm_record in verified.arms} == {"low", "standard", "high"}
+    assert sum(arm_record.participant_count for arm_record in verified.arms) == POPULATION_SIZE
+    for arm_record in verified.arms:
+        assert arm_record.observation_schedule_verified is None  # no schedule declared
+        matching_result = next(r for r in result.arms if r.arm_id == arm_record.arm_id)
+        assert arm_record.endpoint_id == matching_result.endpoint_id
+        assert arm_record.result_id == matching_result.result_id

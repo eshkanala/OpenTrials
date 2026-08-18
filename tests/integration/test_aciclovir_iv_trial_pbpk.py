@@ -6,6 +6,8 @@ execution -> per-arm lineage-aware OTPK v2. The v0.5-A live proof.
 
 from __future__ import annotations
 
+import itertools
+import json
 import os
 from pathlib import Path
 
@@ -28,11 +30,14 @@ from opentrials.core.serialization import document
 from opentrials.orchestration.aciclovir_iv_trial import run_aciclovir_iv_trial
 from opentrials.patient import AgeRange, PopulationSpec, Sex
 from opentrials.storage import (
+    ArmComparisonArtifactStore,
+    PkEndpointArtifactStore,
     PopulationArtifactManifest,
     PopulationArtifactStore,
     PopulationGenerationProvenance,
     PopulationGeneratorProvenance,
     TrialArmAllocationArtifactStore,
+    TrialRunArtifactStore,
 )
 from opentrials.trials import (
     Endpoint,
@@ -257,4 +262,151 @@ def test_prospective_trial_with_declared_observation_schedule(tmp_path: Path) ->
         "\nLive schedule proof -- declared sample times (min):",
         expected_times,
         "-- verified present in every arm's normalized concentration-time artifact.",
+    )
+
+
+def test_complete_prospective_multi_arm_trial_with_schedule_and_provenance_chain(
+    tmp_path: Path,
+) -> None:
+    """The v0.5-C live proof: A (allocation) + B (schedule) + comparison + OTTRIAL, composed."""
+    if os.environ.get("OPENTRIALS_RUN_OSP_INTEGRATION") != "1":
+        pytest.skip("Set OPENTRIALS_RUN_OSP_INTEGRATION=1 to run against local OSP.")
+    r_libs_user = os.environ.get("OPENTRIALS_OSP_R_LIBS_USER")
+    if r_libs_user is None:
+        pytest.skip("Set OPENTRIALS_OSP_R_LIBS_USER to the ospsuite R library path.")
+
+    population_root = tmp_path / "populations"
+    population_store = PopulationArtifactStore(population_root)
+    population_manifest = generate_and_persist_population(population_store, r_libs_user)
+    generation_id = population_manifest.generation_id
+
+    schedule = ObservationSchedule(
+        schedule_id="dense-then-sparse",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=_assumed_min(0), end=_assumed_min(60), interval=_assumed_min(15)
+            ),
+            SamplingWindow(
+                start=_assumed_min(60), end=_assumed_min(480), interval=_assumed_min(60)
+            ),
+        ),
+    )
+    expected_times = schedule.declared_times()
+    assert len(expected_times) == 12
+
+    trial = dose_comparison_trial()
+    run = run_aciclovir_iv_trial(
+        trial,
+        population_generation_id=generation_id,
+        population_root=population_root,
+        output_root=tmp_path / "runs",
+        r_libs_user=r_libs_user,
+        observation_schedule=schedule,
+    )
+
+    # N source participants = 30
+    assert run.population_count == POPULATION_SIZE
+    arm_ids = {arm_result.arm_id for arm_result in run.arms}
+    assert arm_ids == {"low", "standard", "high"}
+
+    allocation_store = TrialArmAllocationArtifactStore(
+        run.run_directory / "allocation", population_store=population_store
+    )
+    allocation_manifest = allocation_store.verify_allocation(run.allocation_id)
+    assert allocation_manifest.total_population == POPULATION_SIZE
+
+    # union(all arms) = all 30 participants; intersection(any two arms) = empty;
+    # each participant occurs exactly once.
+    index_sets = {
+        arm_id: {
+            row["source_row_index"]
+            for row in allocation_store.read_rows_for_arm(run.allocation_id, arm_id)
+        }
+        for arm_id in arm_ids
+    }
+    assert set().union(*index_sets.values()) == set(range(POPULATION_SIZE))
+    assert sum(len(indexes) for indexes in index_sets.values()) == POPULATION_SIZE
+    for arm_a, arm_b in itertools.combinations(index_sets, 2):
+        assert index_sets[arm_a] & index_sets[arm_b] == set()
+
+    # assigned population for each arm = population actually executed in that arm.
+    endpoint_stores: dict[str, PkEndpointArtifactStore] = {}
+    for arm_result in run.arms:
+        endpoint_store = PkEndpointArtifactStore(
+            run.run_directory / "arms" / arm_result.arm_id / "endpoints"
+        )
+        endpoint_stores[arm_result.arm_id] = endpoint_store
+        endpoint_manifest = endpoint_store.verify_endpoints(arm_result.endpoint_id)
+        assert endpoint_manifest.population_lineage_present is True
+        assert endpoint_manifest.source_generation_id == generation_id
+        rows = endpoint_store.read_rows(arm_result.endpoint_id)
+        executed_indexes = {row["source_population_row_index"] for row in rows}
+        assert executed_indexes == index_sets[arm_result.arm_id]
+
+    # requested dose + administration state read back correctly from OSP, per arm.
+    for arm_result in run.arms:
+        raw_path = run.run_directory / "arms" / arm_result.arm_id / "raw" / "osp_response.json"
+        # SchemaDocument.payload holds the dumped RawSimulationResult, whose own
+        # "payload" field is the raw OSP response -- hence payload.payload.
+        raw_envelope = json.loads(raw_path.read_text(encoding="utf-8"))
+        verification = raw_envelope["payload"]["payload"]["execution_verification"]
+        assert verification["model_hash_verification"]["verified"] is True
+        assert verification["route_container_verification"]["verified"] is True
+        assert verification["solver_executed"] is True
+        assert all(item["verified"] is True for item in verification["parameter_assignments"])
+        dose_assignment = next(
+            item for item in verification["parameter_assignments"] if "Dose" in item["path"]
+        )
+        assert dose_assignment["executed"]["value"] == pytest.approx(
+            arm_result.dose_mg / 1_000_000
+        )
+
+    # requested observation schedule verified against solver state/output, per arm.
+    for arm_result in run.arms:
+        table = pq.read_table(arm_result.result_directory / "concentration_time.parquet")
+        rows = table.to_pylist()
+        first_subject = rows[0]["subject_id"]
+        actual_times = sorted({row["time"] for row in rows if row["subject_id"] == first_subject})
+        assert actual_times == list(expected_times)
+
+    # comparisons consume the actual prospectively generated arm outcomes.
+    comparison_store = ArmComparisonArtifactStore(run.run_directory / "comparison")
+    comparison_manifest = comparison_store.verify_comparison(run.comparison_id)
+    assert comparison_manifest.arm_endpoint_ids == {
+        arm_result.arm_id: arm_result.endpoint_id for arm_result in run.arms
+    }
+    assert comparison_manifest.arm_summaries.rows == 9  # 3 arms x 3 endpoint types
+    assert comparison_manifest.pairwise_comparisons.rows == 9  # C(3,2) pairs x 3 endpoint types
+
+    # All persisted artifacts verify after reload -- the authoritative OTTRIAL check.
+    trial_run_store = TrialRunArtifactStore(run.run_directory / "trial_run")
+    verified = trial_run_store.verify_trial_run(
+        run.trial_run_id,
+        population_store=population_store,
+        allocation_store=allocation_store,
+        endpoint_stores=endpoint_stores,
+        comparison_store=comparison_store,
+    )
+    assert verified.trial_id == trial.trial_id
+    assert verified.source_generation_id == generation_id
+    assert verified.allocation_id == run.allocation_id
+    assert verified.comparison_id == run.comparison_id
+    assert verified.observation_schedule is not None
+    assert tuple(verified.observation_schedule.declared_times_min) == expected_times
+    assert {arm_record.arm_id for arm_record in verified.arms} == arm_ids
+    assert all(arm_record.observation_schedule_verified is True for arm_record in verified.arms)
+    assert sum(arm_record.participant_count for arm_record in verified.arms) == POPULATION_SIZE
+
+    cmax_by_arm = {}
+    for arm_result in run.arms:
+        cmax_values = [
+            endpoint.value for endpoint in arm_result.endpoints if endpoint.endpoint_type == "CMAX"
+        ]
+        cmax_by_arm[arm_result.arm_id] = sum(cmax_values) / len(cmax_values)
+    print(
+        "\nLive v0.5-C proof -- OTTRIAL",
+        run.trial_run_id,
+        "mean Cmax by arm:",
+        {arm_id: round(mean, 4) for arm_id, mean in cmax_by_arm.items()},
     )

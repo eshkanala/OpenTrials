@@ -7,6 +7,15 @@ from opentrials.storage.allocation import (
     TrialArmAllocationArtifactStore,
     semantic_allocation_hash,
 )
+from opentrials.storage.arm_comparison_artifacts import (
+    ARM_SUMMARY_COLUMNS,
+    PAIRWISE_COMPARISON_COLUMNS,
+    ArmComparisonArtifactManifest,
+    ArmComparisonArtifactStore,
+    ArmComparisonTableArtifact,
+    semantic_arm_summary_hash,
+    semantic_pairwise_comparison_hash,
+)
 from opentrials.storage.cohort_comparisons import (
     COMPARISON_COLUMNS,
     GROUP_SUMMARY_COLUMNS,
@@ -72,6 +81,13 @@ from opentrials.storage.results import (
 )
 from opentrials.storage.row_identity import source_row_sha256
 from opentrials.storage.runs import RunArtifactStore
+from opentrials.storage.trial_run import (
+    TRIAL_RUN_ID_PATTERN,
+    ArmRunRecord,
+    ObservationScheduleRecord,
+    TrialRunArtifactStore,
+    VirtualTrialArtifactManifest,
+)
 from opentrials.storage.uncertainty import (
     UncertaintyScenarioArtifactManifest,
     UncertaintyScenarioArtifactStore,
@@ -106,10 +122,22 @@ from opentrials.storage.validation import (
 
 __all__ = [
     "ALLOCATION_COLUMNS",
+    "ARM_SUMMARY_COLUMNS",
+    "PAIRWISE_COMPARISON_COLUMNS",
+    "TRIAL_RUN_ID_PATTERN",
     "AllocationTableArtifact",
+    "ArmComparisonArtifactManifest",
+    "ArmComparisonArtifactStore",
+    "ArmComparisonTableArtifact",
+    "ArmRunRecord",
+    "ObservationScheduleRecord",
     "TrialArmAllocationArtifactManifest",
     "TrialArmAllocationArtifactStore",
+    "TrialRunArtifactStore",
+    "VirtualTrialArtifactManifest",
     "semantic_allocation_hash",
+    "semantic_arm_summary_hash",
+    "semantic_pairwise_comparison_hash",
     "CONCENTRATION_TIME_COLUMNS",
     "COMPARISON_COLUMNS",
     "GROUP_SUMMARY_COLUMNS",

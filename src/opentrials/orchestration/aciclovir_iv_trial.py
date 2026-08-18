@@ -45,6 +45,7 @@ from opentrials.models.manifest import Applicability, ModelManifest, ModelType
 from opentrials.models.package import ModelPackage
 from opentrials.simulation.engine import PreparedRun, RawSimulationResult
 from opentrials.storage.allocation import TrialArmAllocationArtifactStore
+from opentrials.storage.arm_comparison_artifacts import ArmComparisonArtifactStore
 from opentrials.storage.endpoints import PkEndpointArtifactStore
 from opentrials.storage.populations import PopulationArtifactStore
 from opentrials.storage.results import (
@@ -52,6 +53,13 @@ from opentrials.storage.results import (
     ResultSelectionMapping,
     normalize_osp_concentration_time_rows,
 )
+from opentrials.storage.trial_run import (
+    ArmRunRecord,
+    ObservationScheduleRecord,
+    TrialRunArtifactStore,
+    VirtualTrialArtifactManifest,
+)
+from opentrials.trials.arm_comparison import compare_trial_arms
 from opentrials.trials.schedule import ObservationSchedule
 from opentrials.trials.trial import RandomizationType, Trial
 
@@ -71,7 +79,9 @@ class ArmExecutionResult(BaseModel):
     arm_id: str = Field(min_length=1)
     dose_mg: float = Field(gt=0)
     participant_count: int = Field(gt=0)
+    result_id: str = Field(pattern=r"^OTRES-[A-Za-z0-9_-]+$")
     result_directory: Path
+    endpoint_id: str = Field(pattern=r"^OTPK-[A-Za-z0-9_-]+$")
     endpoint_directory: Path
     endpoints: tuple[PkEndpointResult, ...] = Field(min_length=1)
 
@@ -87,6 +97,8 @@ class AciclovirIvTrialRun(BaseModel):
     population_generation_id: str = Field(pattern=r"^OTPGEN-[A-Za-z0-9_-]+$")
     population_count: int = Field(gt=0)
     allocation_id: str = Field(pattern=r"^OTALLOC-[A-Za-z0-9_-]+$")
+    comparison_id: str = Field(pattern=r"^OTACMP-[A-Za-z0-9_-]+$")
+    trial_run_id: str = Field(pattern=r"^OTTRIAL-[A-Za-z0-9_-]+$")
     arms: tuple[ArmExecutionResult, ...] = Field(min_length=2)
 
 
@@ -160,6 +172,8 @@ def run_aciclovir_iv_trial(
 
     package = _model_package()
     arm_results: list[ArmExecutionResult] = []
+    arm_run_records: list[ArmRunRecord] = []
+    endpoint_stores: dict[str, PkEndpointArtifactStore] = {}
     for arm in trial.arms:
         _notify(progress, f"executing_arm:{arm.arm_id}")
         allocated_rows = allocation_store.read_rows_for_arm(allocation_id, arm.arm_id)
@@ -185,12 +199,16 @@ def run_aciclovir_iv_trial(
             r_libs_user=r_libs_user,
         )
         _verify_population_raw_result(raw_result, arm_run_id, len(arm_population_rows))
+        schedule_verified: bool | None = None
         if observation_schedule is not None:
             _verify_output_schedule(raw_result, declared_times_min)
+            schedule_verified = True
 
         arm_directory = run_directory / "arms" / arm.arm_id
         raw_document = document("opentrials.osp-population-response", raw_result)
         _write_document(arm_directory / "raw" / "osp_response.json", raw_document)
+        raw_response_sha256 = raw_document.sha256()
+        execution_verification_sha256 = sha256(raw_result.payload["execution_verification"])
 
         rows = _selected_raw_rows(raw_result.payload)
         selection = ResultSelectionMapping(
@@ -247,16 +265,34 @@ def run_aciclovir_iv_trial(
             source_model_id=package.manifest.id,
             subject_lineage=subject_lineage,
         )
-        endpoint_store.verify_endpoints(endpoint_id)
+        arm_endpoint_manifest = endpoint_store.verify_endpoints(endpoint_id)
+        endpoint_stores[arm.arm_id] = endpoint_store
 
         arm_results.append(
             ArmExecutionResult(
                 arm_id=arm.arm_id,
                 dose_mg=arm_doses[arm.arm_id],
                 participant_count=len(arm_population_rows),
+                result_id=result_id,
                 result_directory=result_directory,
+                endpoint_id=endpoint_id,
                 endpoint_directory=endpoint_directory,
                 endpoints=endpoints,
+            )
+        )
+        arm_run_records.append(
+            ArmRunRecord(
+                arm_id=arm.arm_id,
+                requested_dose_mg=arm_doses[arm.arm_id],
+                participant_count=len(arm_population_rows),
+                executed_run_id=arm_run_id,
+                raw_response_sha256=raw_response_sha256,
+                execution_verification_sha256=execution_verification_sha256,
+                observation_schedule_verified=schedule_verified,
+                result_id=result_id,
+                result_semantic_sha256=result_manifest.concentration_time.semantic_content_sha256,
+                endpoint_id=endpoint_id,
+                endpoint_semantic_sha256=arm_endpoint_manifest.endpoints.semantic_content_sha256,
             )
         )
 
@@ -291,6 +327,56 @@ def run_aciclovir_iv_trial(
         },
     )
     _write_document(run_directory / "manifest.json", manifest)
+
+    _notify(progress, "comparing_arms")
+    comparison_result = compare_trial_arms(
+        allocation_id=allocation_id,
+        arm_endpoint_ids={record.arm_id: record.endpoint_id for record in arm_run_records},
+        allocation_store=allocation_store,
+        endpoint_stores=endpoint_stores,
+    )
+    comparison_store = ArmComparisonArtifactStore(run_directory / "comparison")
+    comparison_id = f"OTACMP-{run_id.removeprefix('OTR-')}"
+    comparison_store.create_comparison(comparison_id)
+    comparison_manifest = comparison_store.write_comparison(comparison_id, comparison_result)
+
+    _notify(progress, "writing_trial_record")
+    verified_allocation = allocation_store.verify_allocation(allocation_id)
+    trial_run_store = TrialRunArtifactStore(run_directory / "trial_run")
+    trial_run_id = f"OTTRIAL-{run_id.removeprefix('OTR-')}"
+    trial_run_store.create_trial_run(trial_run_id)
+    trial_run_store.write_trial_run(
+        trial_run_id,
+        VirtualTrialArtifactManifest(
+            trial_run_id=trial_run_id,
+            trial_id=trial.trial_id,
+            trial_sha256=sha256(trial),
+            source_generation_id=population_generation_id,
+            source_population_semantic_sha256=(
+                population_manifest.individuals.semantic_content_sha256
+            ),
+            allocation_id=allocation_id,
+            allocation_semantic_sha256=verified_allocation.allocation.semantic_content_sha256,
+            allocation_seed=verified_allocation.requested_seed,
+            allocation_apportionment_method=verified_allocation.apportionment_method,
+            model_id=package.manifest.id,
+            model_sha256=package.artifact_hash,
+            observation_schedule=(
+                ObservationScheduleRecord(
+                    schedule_id=observation_schedule.schedule_id,
+                    declared_times_min=declared_times_min,
+                )
+                if observation_schedule is not None
+                else None
+            ),
+            arms=tuple(arm_run_records),
+            comparison_id=comparison_id,
+            comparison_semantic_sha256=comparison_manifest.arm_summaries.semantic_content_sha256,
+            software_versions=_software_versions(r_libs_user),
+            created_at=datetime.now(UTC),
+        ),
+    )
+
     _notify(progress, "completed")
     return AciclovirIvTrialRun(
         run_id=run_id,
@@ -299,6 +385,8 @@ def run_aciclovir_iv_trial(
         population_generation_id=population_generation_id,
         population_count=population_manifest.actual_count,
         allocation_id=allocation_id,
+        comparison_id=comparison_id,
+        trial_run_id=trial_run_id,
         arms=tuple(arm_results),
     )
 
