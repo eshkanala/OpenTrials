@@ -47,14 +47,18 @@ jobs:
       - name: Report available dotnet-runtime packages in this feed
         run: apt-cache search dotnet-runtime
 
-      # Exact package set per rSharp's own published Ubuntu instructions
-      # (https://github.com/Open-Systems-Pharmacology/rSharp#ubuntu):
-      # dotnet-runtime-10.0 plus the libcurl/libssl/libxml2/font/graphics
-      # libraries ospsuite's R-universe binary build links against.
-      - name: Install .NET runtime and rSharp/ospsuite system dependencies
+      # rSharp's published docs say .NET 10 is required, but the second
+      # run of this workflow proved otherwise empirically: rSharp 1.2.2
+      # (the version the R-universe actually serves) fails at runtime with
+      # "No .NET 8 runtime was found" even with .NET 10 installed and
+      # working (`dotnet --list-runtimes` showed it present). Installing
+      # both -- confirmed available in this feed by the diagnostic step
+      # above -- rather than trusting either the docs or one guess over
+      # the other.
+      - name: Install .NET runtimes and rSharp/ospsuite system dependencies
         run: |
           sudo apt-get install -y \
-            dotnet-runtime-10.0 \
+            dotnet-runtime-8.0 dotnet-runtime-10.0 \
             libcurl4-openssl-dev libssl-dev libxml2-dev \
             libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
             libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
@@ -90,10 +94,16 @@ jobs:
           dotnet --list-runtimes
           Rscript -e 'cat("R:", R.version.string, "\n"); cat("ospsuite:", as.character(packageVersion("ospsuite")), "\n"); cat("rSharp:", as.character(packageVersion("rSharp")), "\n")'
 
+      # set -o pipefail matters here: without it, a failing Rscript piped
+      # into `tee` still reports success (the shell sees tee's exit code,
+      # not Rscript's) -- confirmed the hard way on the second run of this
+      # workflow, which showed a green checkmark over a real
+      # "No .NET 8 runtime was found" failure underneath.
       - name: Run the Midazolam snapshot conversion
         env:
           LC_ALL: en_US.UTF-8
         run: |
+          set -o pipefail
           LIB_PATH=$(Rscript -e 'cat(.libPaths()[1])')
           export LD_LIBRARY_PATH="${LIB_PATH}/ospsuite/lib/:${LD_LIBRARY_PATH}"
           echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
