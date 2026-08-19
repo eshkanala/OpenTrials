@@ -11,7 +11,7 @@ abstract: >-
   population and multi-arm trial workflows, PK analysis, evidence ingestion,
   validation infrastructure, and researcher-facing reports around compatible
   mechanistic simulation engines.
-version: "1.0.0-rc.2"
+version: "1.0.0"
 date-released: "2026-08-19"
 license: "Apache-2.0"
 repository-code: "https://github.com/eshkanala/OpenTrials"

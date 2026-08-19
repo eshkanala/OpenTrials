@@ -4,9 +4,9 @@ This document tracks the current release state of OpenTrials without turning the
 
 ## Current release
 
-**Current release candidate:** `v1.0.0-rc.2`
+**Current release:** `v1.0.0`
 
-OpenTrials is feature-complete enough for a release-candidate cycle. The second-model generalization proof (v0.7-C) is complete. The remaining scientific proof — independent human validation evidence — was actively re-searched using Midazolam's substantially larger published PK literature and remains open: no qualifying dataset was found. This is documented, not silently carried forward; see below.
+OpenTrials v1.0.0 is a research-software release: verified mechanistic execution, reproducibility/provenance, virtual populations/trials, PK analysis, two live-proven registered models, and researcher tooling (SDK, CLI, reports, model onboarding) — not a clinically validated simulator. The second-model generalization proof (v0.7-C) is complete, and the external clean-install reproduction gate passed on a genuinely fresh machine. The remaining scientific proof — independent human validation evidence — was actively re-searched using Midazolam's substantially larger published PK literature and remains open: no qualifying dataset was found. This is documented as an ongoing post-v1.0 scientific objective, not silently carried forward or treated as a release blocker; see below.
 
 ## Release progression
 
@@ -23,6 +23,7 @@ OpenTrials is feature-complete enough for a release-candidate cycle. The second-
 | v0.9 | Public SDK, thin CLI, verified reports, model onboarding, OSS readiness | Complete |
 | v1.0.0-rc.1 | Release-readiness fixes: license, runtime configuration, versioning, audits | Tagged |
 | v1.0.0-rc.2 | Second live model (Midazolam, oral) registered and live-proven; generic-pipeline bug fixed | Tagged |
+| v1.0.0 | External clean-install reproduction gate + final public-repository readiness audit | Tagged |
 
 ## What is live-proven today
 

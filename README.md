@@ -6,7 +6,7 @@ OpenTrials is an open-source Python platform for defining, executing, verifying,
 
 > **Research and educational use only.** OpenTrials is not a clinical decision-support system, medical device, diagnostic tool, or source of patient-specific treatment advice. Simulation results do not establish clinical validity.
 
-**Release:** `v1.0.0-rc.2` · **License:** Apache-2.0 · **Integration:** Open Systems Pharmacology (`ospsuite`)
+**Release:** `v1.0.0` · **License:** Apache-2.0 · **Integration:** Open Systems Pharmacology (`ospsuite`)
 
 ## Overview
 
