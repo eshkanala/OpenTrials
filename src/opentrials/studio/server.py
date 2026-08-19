@@ -88,6 +88,18 @@ class ForkExperimentRequest(BaseModel):
     output_path: str
 
 
+class DiffExperimentRequest(BaseModel):
+    project_path: str
+
+
+class ReproductionRunRequest(BaseModel):
+    output_root: str = "runs"
+
+
+class CheckReproductionRequest(BaseModel):
+    expected_hash: str | None = None
+
+
 class StartDraftRequest(BaseModel):
     pkml_path: str
     model_id: str
@@ -428,6 +440,49 @@ def post_register_experiment(run_id: str, request: RegisterExperimentRequest) ->
 def post_fork_experiment(logical_id: str, request: ForkExperimentRequest) -> dict[str, Any]:
     try:
         return bridge.fork_experiment(logical_id, output_path=request.output_path)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+# ================= Experiment lineage + reproduction =================
+
+
+@app.get("/api/registry/{logical_id}/ancestry")
+def get_experiment_ancestry(logical_id: str) -> list[dict[str, Any]]:
+    try:
+        return bridge.get_experiment_ancestry(logical_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.get("/api/registry/{logical_id}/children")
+def get_experiment_children(logical_id: str) -> list[dict[str, Any]]:
+    try:
+        return bridge.get_experiment_children(logical_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/registry/{logical_id}/diff")
+def post_diff_experiment(logical_id: str, request: DiffExperimentRequest) -> list[dict[str, Any]]:
+    try:
+        return bridge.diff_experiment_against_project(logical_id, project_path=request.project_path)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/registry/{logical_id}/reproduce")
+def post_start_reproduction(logical_id: str, request: ReproductionRunRequest) -> dict[str, Any]:
+    try:
+        return bridge.start_reproduction_run(logical_id, output_root=request.output_root)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/run/{run_id}/check-reproduction")
+def post_check_reproduction(run_id: str, request: CheckReproductionRequest) -> dict[str, Any]:
+    try:
+        return bridge.check_reproduction(run_id, expected_hash=request.expected_hash)
     except bridge.StudioError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

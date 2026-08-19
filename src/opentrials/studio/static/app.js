@@ -1860,7 +1860,18 @@
       (forkAction ? '<div style="margin-top:10px;">' + forkAction + "</div>" : "") +
       '<div class="field" style="margin-top:10px;"><span class="flabel">Payload</span>' +
       '<pre style="white-space:pre-wrap;font-size:10px;background:var(--well);border:1px solid var(--border-soft);padding:8px;max-height:280px;overflow:auto;">' + escapeHtml(JSON.stringify(d.payload, null, 2)) + "</pre></div>" +
-      "</div></div>";
+      "</div></div>" +
+      (m.kind === "EXPERIMENT"
+        ? '<div class="panel"><div class="phead">Lineage</div><div class="pbody" id="lineagePanel"><span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span></div></div>' +
+          '<div class="panel"><div class="phead">Reproduce</div><div class="pbody">' +
+          '<p style="font-size:10.5px;color:var(--ink-faint);margin:0 0 8px;">Re-runs this experiment&rsquo;s exact trial against its exact model, fresh, and checks whether the endpoint results hash identically.</p>' +
+          '<span class="btn btn-primary raised" id="reproduceBtn" style="cursor:pointer;">Run reproduction</span>' +
+          '<div id="reproduceResult" style="margin-top:8px;"></div></div></div>' +
+          '<div class="panel"><div class="phead">Diff against a project</div><div class="pbody">' +
+          '<div class="field"><span class="flabel">Project path</span><input class="finput mono" id="diffProjectPath" type="text" placeholder="/path/to/forked-project.yaml" /></div>' +
+          '<span class="btn raised" id="diffBtn" style="cursor:pointer;">Diff</span>' +
+          '<div id="diffResult" style="margin-top:8px;"></div></div></div>'
+        : "");
 
     if (m.kind === "EXPERIMENT") {
       document.getElementById("forkBtn").addEventListener("click", function () {
@@ -1883,7 +1894,109 @@
             forkResult.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
           });
       });
+
+      loadExperimentLineage(logicalId);
+
+      document.getElementById("reproduceBtn").addEventListener("click", function () {
+        var out = document.getElementById("reproduceResult");
+        out.innerHTML = "Starting reproduction run&hellip;";
+        fetch("/api/registry/" + encodeURIComponent(logicalId) + "/reproduce", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not start reproduction"); });
+            return r.json();
+          })
+          .then(function (result) { pollReproductionRun(result.run_id, result.expected_endpoint_summary_sha256, out); })
+          .catch(function (err) {
+            out.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+          });
+      });
+
+      document.getElementById("diffBtn").addEventListener("click", function () {
+        var projectPath = document.getElementById("diffProjectPath").value.trim();
+        if (!projectPath) return;
+        var out = document.getElementById("diffResult");
+        out.innerHTML = "Diffing&hellip;";
+        fetch("/api/registry/" + encodeURIComponent(logicalId) + "/diff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_path: projectPath }),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "diff failed"); });
+            return r.json();
+          })
+          .then(function (changes) { renderExperimentDiff(out, changes); })
+          .catch(function (err) {
+            out.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+          });
+      });
     }
+  }
+
+  function loadExperimentLineage(logicalId) {
+    var panel = document.getElementById("lineagePanel");
+    Promise.all([
+      fetch("/api/registry/" + encodeURIComponent(logicalId) + "/ancestry").then(function (r) { return r.json(); }),
+      fetch("/api/registry/" + encodeURIComponent(logicalId) + "/children").then(function (r) { return r.json(); }),
+    ]).then(function (results) {
+      var ancestryChain = results[0].slice().reverse(); // root first
+      var kids = results[1];
+      var ancestryHtml = ancestryChain.length > 1
+        ? ancestryChain.map(function (m, i) {
+            var isSelf = i === ancestryChain.length - 1;
+            return (isSelf ? "<strong>" : "") + escapeHtml(m.logical_id) + (isSelf ? "</strong>" : "");
+          }).join(" &rarr; ")
+        : "This is a root experiment (not a fork).";
+      var childrenHtml = kids.length
+        ? kids.map(function (m) { return '<div class="param-row">' + escapeHtml(m.logical_id) + "</div>"; }).join("")
+        : '<div class="param-row" style="color:var(--ink-faint);">No forks registered yet.</div>';
+      panel.innerHTML =
+        '<div style="font-size:11px;margin-bottom:8px;">' + ancestryHtml + "</div>" +
+        '<span class="flabel" style="display:block;margin-bottom:4px;">Forked from this experiment</span>' +
+        childrenHtml;
+    });
+  }
+
+  function pollReproductionRun(runId, expectedHash, out) {
+    out.innerHTML = '<div class="empty-state">Running&hellip;</div>';
+    fetch("/api/run/" + runId).then(function (r) { return r.json(); }).then(function (run) {
+      if (run.status === "running") { setTimeout(function () { pollReproductionRun(runId, expectedHash, out); }, 2000); return; }
+      if (run.status === "failed") {
+        out.innerHTML = '<div class="error-banner"><strong>Reproduction run failed.</strong><br />' + escapeHtml(run.error || "") + "</div>";
+        return;
+      }
+      fetch("/api/run/" + runId + "/check-reproduction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_hash: expectedHash }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (check) {
+          out.innerHTML = check.reproduced
+            ? '<div class="hash-line"><span class="k" style="color:var(--verified);">Reproduced identically</span><span class="v mono">' + escapeHtml(check.actual_hash) + "</span></div>"
+            : '<div class="error-banner"><strong>Did not reproduce identically.</strong><br />expected <span class="mono">' + escapeHtml(String(check.expected_hash)) + '</span><br />got <span class="mono">' + escapeHtml(check.actual_hash) + "</span></div>";
+        });
+    });
+  }
+
+  function renderExperimentDiff(out, changes) {
+    if (!changes.length) {
+      out.innerHTML = '<div class="empty-state">No changes -- identical to the registered experiment.</div>';
+      return;
+    }
+    out.innerHTML = changes.map(function (c) {
+      if (c.change === "changed") {
+        return '<div class="param-row"><span class="mono">' + escapeHtml(c.path) + "</span><span style=\"margin-left:auto;color:var(--absent);\">" + escapeHtml(JSON.stringify(c.before)) + " &rarr; </span><span style=\"color:var(--verified);\">" + escapeHtml(JSON.stringify(c.after)) + "</span></div>";
+      }
+      if (c.change === "added") {
+        return '<div class="param-row"><span class="mono">' + escapeHtml(c.path) + '</span><span style="margin-left:auto;color:var(--verified);">added: ' + escapeHtml(JSON.stringify(c.after)) + "</span></div>";
+      }
+      return '<div class="param-row"><span class="mono">' + escapeHtml(c.path) + '</span><span style="margin-left:auto;color:var(--absent);">removed: ' + escapeHtml(JSON.stringify(c.before)) + "</span></div>";
+    }).join("");
   }
 
   // ================= Model Builder pane =================

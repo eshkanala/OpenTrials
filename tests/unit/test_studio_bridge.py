@@ -1166,3 +1166,88 @@ def test_reject_parameter_evidence_candidate_records_a_reason(tmp_path: Path) ->
     )
     assert result["outcome"] == "REJECTED"
     assert result["rejection_reason"] == "not a primary source"
+
+
+# ================= Experiment lineage + reproduction =================
+
+
+def _put_bridge_experiment(
+    tmp_path: Path, *, trial_id: str, logical_id: str, forked_from_record_id: str | None = None
+) -> str:
+    from opentrials.core.serialization import sha256
+    from opentrials.registry import EvidenceClass, FilesystemRegistryBackend, RegistrySource
+    from opentrials.registry.schema import ExperimentRecord, RegistryRecordKind
+
+    config = load_project(_write_valid_project(tmp_path, trial_id))
+    real_trial = config.trial
+    backend = FilesystemRegistryBackend(tmp_path / "registry")
+    record = ExperimentRecord(
+        trial_id=real_trial.trial_id,
+        trial=real_trial,
+        trial_sha256=sha256(real_trial),
+        model_id=config.model_id or "osp.aciclovir.vergin-1995-iv",
+        run_id="OTR-population-abc123",
+        title=real_trial.title,
+        forked_from_record_id=forked_from_record_id,
+    )
+    manifest = backend.put(
+        RegistryRecordKind.EXPERIMENT,
+        record,
+        logical_id=logical_id,
+        evidence_class=EvidenceClass.SIMULATED,
+        license="CC-BY-4.0",
+        source=RegistrySource(kind="experiment_run", identifier="OTR-population-abc123"),
+    )
+    return manifest.record_id
+
+
+def _write_valid_project(tmp_path: Path, trial_id: str) -> Path:
+    path = tmp_path / f"{trial_id}.yaml"
+    path.write_text(VALID_PROJECT_YAML.replace("DEMO-TRIAL", trial_id), encoding="utf-8")
+    return path
+
+
+def test_get_experiment_ancestry_raises_for_an_unknown_logical_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.get_experiment_ancestry("no-such-experiment", root=str(tmp_path / "registry"))
+
+
+def test_get_experiment_ancestry_returns_just_self_with_no_parent(tmp_path: Path) -> None:
+    _put_bridge_experiment(tmp_path, trial_id="ROOT-TRIAL", logical_id="root")
+    ancestry = bridge.get_experiment_ancestry("root", root=str(tmp_path / "registry"))
+    assert len(ancestry) == 1
+    assert ancestry[0]["logical_id"] == "root"
+
+
+def test_get_experiment_children_finds_a_direct_fork(tmp_path: Path) -> None:
+    root_record_id = _put_bridge_experiment(tmp_path, trial_id="ROOT-TRIAL", logical_id="root")
+    _put_bridge_experiment(
+        tmp_path, trial_id="CHILD-TRIAL", logical_id="child", forked_from_record_id=root_record_id
+    )
+    kids = bridge.get_experiment_children("root", root=str(tmp_path / "registry"))
+    assert [k["logical_id"] for k in kids] == ["child"]
+
+
+def test_diff_experiment_against_project_reports_a_changed_population_size(
+    tmp_path: Path,
+) -> None:
+    _put_bridge_experiment(tmp_path, trial_id="ROOT-TRIAL", logical_id="root")
+    forked_path = tmp_path / "forked.yaml"
+    forked_path.write_text(
+        VALID_PROJECT_YAML.replace("DEMO-TRIAL", "ROOT-TRIAL").replace("size: 10", "size: 42"),
+        encoding="utf-8",
+    )
+    changes = bridge.diff_experiment_against_project(
+        "root", project_path=str(forked_path), root=str(tmp_path / "registry")
+    )
+    assert any(c["path"].endswith("population.size") for c in changes)
+
+
+def test_start_reproduction_run_raises_for_an_unknown_logical_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.start_reproduction_run("no-such-experiment", root=str(tmp_path / "registry"))
+
+
+def test_check_reproduction_raises_for_an_incomplete_run() -> None:
+    with pytest.raises(bridge.StudioError, match="has not completed successfully"):
+        bridge.check_reproduction("no-such-run", expected_hash="sha256:" + "a" * 64)

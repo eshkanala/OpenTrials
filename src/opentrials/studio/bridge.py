@@ -51,6 +51,7 @@ from opentrials.registry import (
     EvidenceClass,
     ExperimentRecord,
     RegistryCompatibility,
+    RegistryEntryManifest,
     RegistryError,
     RegistryRecordKind,
     RegistrySource,
@@ -67,6 +68,13 @@ from opentrials.sdk import onboarding as sdk_onboarding
 from opentrials.sdk import parameter_evidence as sdk_parameter_evidence
 from opentrials.sdk.cohort import compare_cohorts, define_and_persist_cohort
 from opentrials.sdk.evidence import default_evidence_connectors, ingest_and_persist
+from opentrials.sdk.experiment_lineage import (
+    ancestry,
+    children,
+    diff_trials,
+    endpoint_summary_sha256,
+    resolve_forked_from,
+)
 from opentrials.sdk.model_onboarding import (
     generate_profile_scaffold,
     inspect_model,
@@ -1575,6 +1583,7 @@ def register_run_as_experiment(
         raise StudioError(f"Run {run_id!r} has not completed successfully.")
     run = state.run_object
     trial = state.trial
+    backend = default_registry_backend(root)
 
     experiment = ExperimentRecord(
         trial_id=trial.trial_id,
@@ -1584,8 +1593,9 @@ def register_run_as_experiment(
         run_id=run.run_id,
         title=title,
         summary=summary,
+        forked_from_record_id=resolve_forked_from(trial, backend=backend),
+        endpoint_summary_sha256=endpoint_summary_sha256(run.endpoints),
     )
-    backend = default_registry_backend(root)
     manifest = backend.put(
         RegistryRecordKind.EXPERIMENT,
         experiment,
@@ -1628,3 +1638,97 @@ def fork_experiment(
     config = ProjectConfig(trial=forked_trial, model_id=payload.model_id)
     resolved_output_path.write_text(dump_project(config), encoding="utf-8")
     return _project_summary(config, resolved_output_path)
+
+
+# ================= Experiment lineage + reproduction =================
+#
+# Find, understand, reproduce, fork, and trace an experiment forever.
+# ``forked_from_record_id``/``endpoint_summary_sha256`` are resolved and
+# computed automatically at registration time (see
+# ``register_run_as_experiment`` above) -- nothing here trusts a caller's
+# claim about lineage or asks a researcher to remember to preserve it.
+
+
+def _experiment_manifest_and_payload(
+    logical_id: str, *, root: str | None
+) -> tuple[RegistryEntryManifest, ExperimentRecord]:
+    backend = default_registry_backend(root)
+    try:
+        manifest, payload = backend.get_latest(logical_id)
+    except RegistryError as error:
+        raise StudioError(str(error)) from error
+    if manifest.kind is not RegistryRecordKind.EXPERIMENT:
+        raise StudioError(f"{logical_id!r} is not an experiment record (kind={manifest.kind!r}).")
+    if not isinstance(payload, ExperimentRecord):
+        raise StudioError(f"Unexpected payload type for experiment {logical_id!r}.")
+    return manifest, payload
+
+
+def get_experiment_ancestry(logical_id: str, *, root: str | None = None) -> list[dict[str, Any]]:
+    """Self first, root last -- the full fork chain behind this experiment."""
+    manifest, _ = _experiment_manifest_and_payload(logical_id, root=root)
+    backend = default_registry_backend(root)
+    return [_manifest_summary(m) for m in ancestry(manifest.record_id, backend=backend)]
+
+
+def get_experiment_children(logical_id: str, *, root: str | None = None) -> list[dict[str, Any]]:
+    """Every experiment directly forked from this one."""
+    manifest, _ = _experiment_manifest_and_payload(logical_id, root=root)
+    backend = default_registry_backend(root)
+    return [_manifest_summary(m) for m in children(manifest.record_id, backend=backend)]
+
+
+def diff_experiment_against_project(
+    logical_id: str, *, project_path: str, root: str | None = None
+) -> list[dict[str, Any]]:
+    """What has actually changed in a forked project versus the experiment it came from."""
+    _, payload = _experiment_manifest_and_payload(logical_id, root=root)
+    try:
+        config = load_project(Path(project_path))
+    except ProjectConfigurationError as error:
+        raise StudioError(str(error)) from error
+    return diff_trials(payload.trial, config.trial)
+
+
+def start_reproduction_run(
+    logical_id: str, *, output_root: str = "runs", root: str | None = None
+) -> dict[str, Any]:
+    """Re-run a registered experiment's exact trial against its exact model, for real.
+
+    Writes the embedded trial/model to a fresh project.yaml, and runs it
+    with its own isolated ``output_root`` -- deliberately *not* the
+    original run's own output_root, since the trial's population id/seed
+    are identical and the write-once population store would otherwise
+    refuse to regenerate a population that already exists there. Each
+    reproduction attempt regenerates the population from scratch in its
+    own directory, which is the real, honest test: it proves the
+    *generator* is deterministic, not merely that reusing an unchanged
+    artifact is. Starts through the same generic ``start_run`` machinery
+    every other run uses -- no separate execution path to keep in sync.
+    """
+    manifest, payload = _experiment_manifest_and_payload(logical_id, root=root)
+    attempt_dir = (
+        Path(output_root) / "_reproductions" / _slug(manifest.logical_id) / uuid.uuid4().hex
+    )
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    project_path = attempt_dir / "project.yaml"
+    config = ProjectConfig(trial=payload.trial, model_id=payload.model_id)
+    project_path.write_text(dump_project(config), encoding="utf-8")
+
+    result = start_run(str(project_path), output_root=str(attempt_dir / "runs"))
+    result["expected_endpoint_summary_sha256"] = payload.endpoint_summary_sha256
+    result["source_record_id"] = manifest.record_id
+    return result
+
+
+def check_reproduction(run_id: str, *, expected_hash: str | None) -> dict[str, Any]:
+    """Compare a completed reproduction run's real endpoint fingerprint against the original."""
+    state = _RUNS.get(run_id)
+    if state is None or state.run_object is None:
+        raise StudioError(f"Run {run_id!r} has not completed successfully.")
+    actual_hash = endpoint_summary_sha256(state.run_object.endpoints)
+    return {
+        "reproduced": expected_hash is not None and actual_hash == expected_hash,
+        "expected_hash": expected_hash,
+        "actual_hash": actual_hash,
+    }

@@ -165,6 +165,19 @@ class ExperimentRecord(BaseModel):
     exact, immutable content identity (via ``core.serialization.sha256``,
     the same convention every other cross-reference in this project uses)
     so a caller can cite/verify the trial without re-hashing it.
+
+    ``forked_from_record_id`` is a structured lineage pointer, distinct
+    from ``trial.provenance_ids`` (which may carry any provenance
+    reference -- evidence, registered parameters, and so on): it is set
+    only when this experiment's own trial was forked from another
+    registered experiment, resolved automatically from provenance at
+    registration time rather than trusted from caller input, so lineage
+    cannot silently drift or be forgotten (see ``sdk.experiment_lineage``).
+    ``endpoint_summary_sha256`` is the reproducibility fingerprint of the
+    attached run's own endpoint results -- since population generation is
+    seeded, re-running the same trial against the same model should
+    reproduce this exact hash; a mismatch is a real, checkable signal that
+    something about the model or environment has changed.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -177,6 +190,8 @@ class ExperimentRecord(BaseModel):
     title: str = Field(min_length=1)
     summary: str | None = None
     endpoint_ids: tuple[str, ...] = ()
+    forked_from_record_id: str | None = Field(default=None, pattern=RECORD_ID_PATTERN)
+    endpoint_summary_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
 
     @model_validator(mode="after")
     def validate_trial_hash(self) -> ExperimentRecord:
