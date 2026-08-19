@@ -1487,6 +1487,49 @@
     });
   }
 
+  function evqClass(compatibility) {
+    if (compatibility === "HIGH") return "evq-high";
+    if (compatibility === "MODERATE") return "evq-mod";
+    return "evq-low";
+  }
+
+  function registryCandidateHtml(match) {
+    var reasons = match.reasons.map(function (r) { return "<li>" + escapeHtml(r) + "</li>"; }).join("");
+    return (
+      '<div class="evidence-choice' + (match.compatibility === "HIGH" ? " best" : "") + '">' +
+      '<div class="ec-head">' +
+      '<span class="value">' + escapeHtml(match.logical_id) + "</span>" +
+      '<span class="tag">' + escapeHtml(match.evidence_class) + "</span>" +
+      '<span class="evq ' + evqClass(match.compatibility) + '">' + escapeHtml(match.compatibility) + "</span>" +
+      "</div>" +
+      '<div class="ec-body">' +
+      '<span class="src">' + escapeHtml(match.kind) + "</span> &middot; " + escapeHtml(match.record_id) +
+      " &middot; license " + escapeHtml(match.license) +
+      '<details><summary class="ec-why">Why is this suggested?</summary><ul class="ec-reasons">' + reasons + "</ul></details>" +
+      "</div></div>"
+    );
+  }
+
+  function renderRegistryMatches(container, result) {
+    var sections = "";
+    if (result.compound_match) {
+      sections +=
+        '<div style="margin-bottom:10px;"><span class="flabel" style="display:block;margin-bottom:4px;">Compound</span>' +
+        registryCandidateHtml(result.compound_match) + "</div>";
+    }
+    if (result.dataset_matches.length) {
+      sections +=
+        '<div style="margin-bottom:10px;"><span class="flabel" style="display:block;margin-bottom:4px;">Datasets</span>' +
+        result.dataset_matches.map(registryCandidateHtml).join("") + "</div>";
+    }
+    if (result.parameter_evidence_matches.length) {
+      sections +=
+        '<div style="margin-bottom:10px;"><span class="flabel" style="display:block;margin-bottom:4px;">Parameter evidence</span>' +
+        result.parameter_evidence_matches.map(registryCandidateHtml).join("") + "</div>";
+    }
+    container.innerHTML = sections || '<div class="empty-state">No registry candidates found for this compound.</div>';
+  }
+
   function renderInspectionReport(report, pkmlPath) {
     var resultBox = document.getElementById("inspectionResult");
     var adminRows = report.administrations.map(function (a) {
@@ -1504,11 +1547,33 @@
       "</div>" +
       '<div style="margin-top:8px;"><span class="flabel" style="display:block;margin-bottom:4px;">Administration candidates</span>' + adminRows + "</div>" +
       "</div></div>" +
+      '<div class="panel"><div class="phead">Registry candidates</div><div class="pbody">' +
+      '<div class="review-banner"><span class="ic">&#9888;</span><span class="tx">Discovered molecule names are engine identifiers, not OpenTrials compound identity &mdash; confirm the correct <span class="mono">compound_id</span> yourself before matching.</span></div>' +
+      '<div class="field"><span class="flabel">Compound ID</span><input class="finput" id="registryCompoundId" type="text" placeholder="e.g. aciclovir" value="' + escapeHtml((report.molecule_names[0] || "").toLowerCase()) + '" /></div>' +
+      '<span class="btn btn-primary raised" id="registryMatchBtn" style="cursor:pointer;">Find registry candidates</span>' +
+      '<div id="registryMatchResult" style="margin-top:10px;"></div>' +
+      '</div></div>' +
       '<div class="panel"><div class="phead">Generate profile scaffold</div><div class="pbody">' +
       '<div class="field"><span class="flabel">Model ID</span><input class="finput" id="scaffoldModelId" type="text" placeholder="osp.compound.route-variant" /></div>' +
       '<span class="btn btn-primary raised" id="scaffoldBtn" style="cursor:pointer;">Generate scaffold</span>' +
       '<div id="scaffoldResult" style="margin-top:8px;"></div>' +
       "</div></div>";
+
+    document.getElementById("registryMatchBtn").addEventListener("click", function () {
+      var compoundId = document.getElementById("registryCompoundId").value.trim();
+      if (!compoundId) return;
+      var matchResult = document.getElementById("registryMatchResult");
+      matchResult.innerHTML = '<div class="empty-state">Matching&hellip;</div>';
+      fetch("/api/registry/matches/" + encodeURIComponent(compoundId))
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "matching failed"); });
+          return r.json();
+        })
+        .then(function (result) { renderRegistryMatches(matchResult, result); })
+        .catch(function (err) {
+          matchResult.innerHTML = '<div class="error-banner"><strong>Matching failed.</strong><br />' + escapeHtml(err.message) + "</div>";
+        });
+    });
 
     document.getElementById("scaffoldBtn").addEventListener("click", function () {
       var modelId = document.getElementById("scaffoldModelId").value.trim();

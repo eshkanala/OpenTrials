@@ -195,6 +195,14 @@ def post_model_scaffold(request: ScaffoldRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.get("/api/registry/matches/{compound_id}")
+def get_registry_matches(compound_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_registry_matches_for_compound(compound_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.get("/api/evidence")
 def get_evidence_connectors() -> list[dict[str, Any]]:
     return bridge.list_evidence_connectors()

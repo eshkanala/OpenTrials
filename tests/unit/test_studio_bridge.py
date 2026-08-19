@@ -613,6 +613,38 @@ def test_get_registry_record_raises_for_an_unknown_logical_id(tmp_path: Path) ->
         bridge.get_registry_record("no-such-thing", root=str(tmp_path / "registry"))
 
 
+def test_get_registry_matches_for_compound_is_empty_for_a_fresh_root(tmp_path: Path) -> None:
+    result = bridge.get_registry_matches_for_compound("aciclovir", root=str(tmp_path / "registry"))
+    assert result == {
+        "compound_match": None,
+        "dataset_matches": [],
+        "parameter_evidence_matches": [],
+    }
+
+
+def test_get_registry_matches_for_compound_finds_a_seeded_compound(tmp_path: Path) -> None:
+    from opentrials.compound import Compound, CompoundIdentity
+    from opentrials.registry import EvidenceClass, FilesystemRegistryBackend, RegistrySource
+    from opentrials.registry.schema import RegistryRecordKind
+
+    backend = FilesystemRegistryBackend(tmp_path / "registry")
+    backend.put(
+        RegistryRecordKind.COMPOUND,
+        Compound(identity=CompoundIdentity(compound_id="aciclovir", preferred_name="Aciclovir")),
+        logical_id="aciclovir",
+        evidence_class=EvidenceClass.CURATED,
+        license="CC-BY-4.0",
+        source=RegistrySource(kind="manual_curation", identifier="test"),
+    )
+
+    result = bridge.get_registry_matches_for_compound("aciclovir", root=str(tmp_path / "registry"))
+
+    assert result["compound_match"] is not None
+    assert result["compound_match"]["compatibility"] == "HIGH"
+    assert result["dataset_matches"] == []
+    assert result["parameter_evidence_matches"] == []
+
+
 def test_register_run_as_experiment_raises_for_an_unknown_run_id(tmp_path: Path) -> None:
     with pytest.raises(bridge.StudioError):
         bridge.register_run_as_experiment(

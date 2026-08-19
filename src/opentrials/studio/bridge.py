@@ -69,6 +69,12 @@ from opentrials.sdk.model_onboarding import (
 from opentrials.sdk.physiology import run_trial_physiology_states, verify_physiology_states
 from opentrials.sdk.project import Project, dose_mg_for_model
 from opentrials.sdk.registry import default_model_registry, default_registry_backend
+from opentrials.sdk.registry_match import (
+    match_compound,
+    match_datasets_for_compound,
+    match_parameter_evidence,
+    match_summary,
+)
 from opentrials.sdk.run import PopulationRun, TrialRun
 from opentrials.trials.trial import Trial
 
@@ -791,6 +797,29 @@ def inspect_pkml(pkml_path: str) -> dict[str, Any]:
     except (OSError, ValueError, RuntimeError) as error:
         raise StudioError(f"Inspection failed: {error}") from error
     return report.model_dump(mode="json")
+
+
+def get_registry_matches_for_compound(
+    compound_id: str, *, root: str | None = None
+) -> dict[str, Any]:
+    """Real, rules-based Registry candidates for one discovered compound.
+
+    Pure translation over ``sdk.registry_match`` -- no scoring/inference
+    happens here, only reshaping into JSON. Every candidate returned
+    already carries its own auditable ``reasons``.
+    """
+    backend = default_registry_backend(root)
+    compound_match = match_compound(compound_id, backend=backend)
+    return {
+        "compound_match": match_summary(compound_match) if compound_match else None,
+        "dataset_matches": [
+            match_summary(m) for m in match_datasets_for_compound(compound_id, backend=backend)
+        ],
+        "parameter_evidence_matches": [
+            match_summary(m)
+            for m in match_parameter_evidence(compound_id=compound_id, backend=backend)
+        ],
+    }
 
 
 def create_model_scaffold(

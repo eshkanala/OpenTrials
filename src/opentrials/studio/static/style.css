@@ -257,6 +257,20 @@ select.fselect { appearance: none; cursor: pointer; }
 .param-row { display: flex; align-items: center; gap: 7px; padding: 6px 10px; font-size: 11px; color: var(--ink-soft); border-bottom: 1px solid var(--border-soft); }
 .param-row:last-child { border-bottom: none; }
 
+.evidence-choice { border: 1px solid var(--border); margin-bottom: 8px; }
+.evidence-choice.best { border-color: var(--signal); }
+.ec-head { display: flex; align-items: center; gap: 9px; padding: 9px 11px; }
+.ec-head .value { font-size: 13px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ec-head .evq { margin-left: auto; font-size: 9px; font-weight: 700; padding: 2px 6px; border: 1px solid currentColor; }
+.evq-high { color: var(--verified); }
+.evq-mod { color: var(--pending); }
+.evq-low { color: var(--absent); }
+.ec-body { padding: 0 11px 11px 22px; font-size: 10.5px; color: var(--ink-faint); line-height: 1.6; }
+.ec-body .src { color: var(--ink-soft); font-weight: 600; }
+.ec-why { cursor: pointer; color: var(--signal-text); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.ec-reasons { margin: 6px 0 0; padding-left: 16px; }
+.ec-reasons li { margin-bottom: 2px; }
+
 .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ink-faint); font-size: 12px; text-align: center; padding: 40px; }
 .error-banner { background: var(--well); border: 1px solid var(--absent); border-left-width: 3px; padding: 9px 11px; margin-bottom: 12px; font-size: 11px; color: var(--ink); }
 .error-banner strong { color: var(--absent); }
