@@ -39,17 +39,25 @@ dotnet_root: /usr/lib/dotnet
 r_libs_user: /home/researcher/R/library
 ```
 
-These overrides are new and unit-tested (`config.runtime.resolve_osp_runtime`),
-but the resulting non-macOS *execution* path through real OSP has not
-itself been re-verified on Linux or Windows — if you hit a platform-specific
-OSP/R issue after pointing these at a real install, that is an OSP/R
-environment problem this project has not yet reproduced, not a silent
-failure of the override mechanism itself.
+These overrides are unit-tested (`config.runtime.resolve_osp_runtime`) and
+were exercised live on a fresh `ubuntu-24.04` machine as part of the
+v1.0.0 clean-install reproduction gate: `opentrials init`/`validate`, a
+real OSP population generation, verification, and arm allocation all
+succeeded. Full simulation *execution* did not — the R-universe build of
+`ospsuite` compiled from source on that run (no prebuilt Linux binary was
+served for this R/platform combination) and its own configure step could
+not locate `System.Data.SQLite.dll` at runtime, a documented upstream gap
+in `ospsuite`'s own source-install path (its own warning points to a
+`setup_dev()` dev-workflow step not available outside a full source
+checkout) — not an OpenTrials defect, and not yet resolved. Only macOS
+(Apple Silicon) has a fully verified execution path today; treat Linux as
+"installs and gets meaningfully further than before, execution not yet
+verified" rather than either "unsupported" or "verified."
 
 ## Install
 
 ```bash
-git clone <this repository>
+git clone https://github.com/eshkanala/OpenTrials.git
 cd OpenTrials
 uv sync
 ```

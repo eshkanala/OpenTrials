@@ -8,7 +8,7 @@ what we expect from a change, and how the project is put together.
 ## Development setup
 
 ```bash
-git clone <this repository>
+git clone https://github.com/eshkanala/OpenTrials.git
 cd OpenTrials
 uv sync --all-extras
 ```
