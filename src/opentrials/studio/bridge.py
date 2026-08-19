@@ -40,10 +40,19 @@ from opentrials.config.project import (
     load_project,
 )
 from opentrials.config.runtime import resolve_osp_runtime
+from opentrials.core.serialization import sha256
 from opentrials.events import Event
 from opentrials.evidence.connector import IneligibleEvidenceCandidateError, run_connector
 from opentrials.orchestration.physiology_trial_execution import PhysiologyStateDeclaration
 from opentrials.physiology.overrides import PhysiologicalStateOverride
+from opentrials.registry import (
+    EvidenceClass,
+    ExperimentRecord,
+    RegistryCompatibility,
+    RegistryError,
+    RegistryRecordKind,
+    RegistrySource,
+)
 from opentrials.reporting import (
     build_population_report,
     build_trial_report,
@@ -59,8 +68,9 @@ from opentrials.sdk.model_onboarding import (
 )
 from opentrials.sdk.physiology import run_trial_physiology_states, verify_physiology_states
 from opentrials.sdk.project import Project, dose_mg_for_model
-from opentrials.sdk.registry import default_model_registry
+from opentrials.sdk.registry import default_model_registry, default_registry_backend
 from opentrials.sdk.run import PopulationRun, TrialRun
+from opentrials.trials.trial import Trial
 
 
 class StudioError(ValueError):
@@ -365,6 +375,7 @@ class _RunState:
     summary: str | None = None
     verified: bool | None = None
     run_object: PopulationRun | TrialRun | None = None
+    trial: Trial | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -388,7 +399,7 @@ def start_run(path: str, *, output_root: str = "runs") -> dict[str, Any]:
         )
 
     run_id = uuid.uuid4().hex
-    state = _RunState()
+    state = _RunState(trial=project.trial)
     _RUNS[run_id] = state
 
     def on_event(event: Event) -> None:
@@ -997,3 +1008,120 @@ def get_run_result_data(run_id: str) -> dict[str, Any]:
     if state is None or state.run_object is None:
         raise StudioError(f"Run {run_id!r} has not completed successfully.")
     return state.run_object.report().model_dump(mode="json")
+
+
+# ================= Registry =================
+#
+# Every function here is pure translation over ``registry.store``'s
+# already-verifying backend (``get``/``verify`` re-derive hashes from
+# disk, exactly like every other store in this project) -- no scientific
+# computation, and no second copy of the "what is a valid Registry
+# record" rule, which lives entirely in ``registry.schema``.
+
+
+def _manifest_summary(manifest: Any) -> dict[str, Any]:
+    return {
+        "record_id": manifest.record_id,
+        "logical_id": manifest.logical_id,
+        "kind": manifest.kind.value,
+        "version": manifest.version,
+        "evidence_class": manifest.evidence_class.value,
+        "license": manifest.license,
+        "source": {"kind": manifest.source.kind, "identifier": manifest.source.identifier},
+        "applies_to_model_ids": (
+            list(manifest.compatibility.model_ids) if manifest.compatibility else []
+        ),
+        "superseded_id": manifest.superseded_id,
+        "created_at": manifest.created_at.isoformat(),
+    }
+
+
+def list_registry_records(
+    kind: str | None = None, *, root: str | None = None
+) -> list[dict[str, Any]]:
+    """List every registered record, optionally filtered by kind, most recent first."""
+    backend = default_registry_backend(root)
+    kind_enum = RegistryRecordKind(kind.upper()) if kind else None
+    return [_manifest_summary(m) for m in backend.list(kind_enum)]
+
+
+def get_registry_record(logical_id: str, *, root: str | None = None) -> dict[str, Any]:
+    """Return one record's manifest and full payload, re-verified from disk."""
+    backend = default_registry_backend(root)
+    try:
+        latest_manifest, _ = backend.get_latest(logical_id)
+        manifest = backend.verify(latest_manifest.record_id)
+        _, payload = backend.get(manifest.record_id)
+    except RegistryError as error:
+        raise StudioError(str(error)) from error
+    return {"manifest": _manifest_summary(manifest), "payload": payload.model_dump(mode="json")}
+
+
+def register_run_as_experiment(
+    run_id: str, *, title: str, summary: str | None = None, license: str, root: str | None = None
+) -> dict[str, Any]:
+    """Register a completed run's trial as a real Registry EXPERIMENT record.
+
+    Always ``evidence_class=SIMULATED`` -- enforced structurally by
+    ``RegistryEntryManifest`` itself (see ``registry.schema``), not left
+    to this function's own discipline: a simulated outcome can never be
+    registered as MEASURED/CURATED/DERIVED evidence of the real world.
+    """
+    state = _RUNS.get(run_id)
+    if state is None or state.run_object is None or state.trial is None:
+        raise StudioError(f"Run {run_id!r} has not completed successfully.")
+    run = state.run_object
+    trial = state.trial
+
+    experiment = ExperimentRecord(
+        trial_id=trial.trial_id,
+        trial=trial,
+        trial_sha256=sha256(trial),
+        model_id=run.model.model_id,
+        run_id=run.run_id,
+        title=title,
+        summary=summary,
+    )
+    backend = default_registry_backend(root)
+    manifest = backend.put(
+        RegistryRecordKind.EXPERIMENT,
+        experiment,
+        logical_id=f"{trial.trial_id}-{run.run_id}",
+        evidence_class=EvidenceClass.SIMULATED,
+        license=license,
+        source=RegistrySource(kind="experiment_run", identifier=run.run_id),
+        compatibility=RegistryCompatibility(model_ids=(run.model.model_id,)),
+    )
+    return _manifest_summary(manifest)
+
+
+def fork_experiment(
+    logical_id: str, *, output_path: str, root: str | None = None
+) -> dict[str, Any]:
+    """Write a new project.yaml from a registered experiment's trial protocol.
+
+    The new project's trial keeps an explicit ``provenance_ids`` pointer
+    back to the exact experiment record it was forked from -- "preserving
+    exact provenance of what changed" means the origin is never lost,
+    even after the researcher edits arms/doses/endpoints locally through
+    the normal Trial Builder save path.
+    """
+    backend = default_registry_backend(root)
+    try:
+        manifest, payload = backend.get_latest(logical_id)
+    except RegistryError as error:
+        raise StudioError(str(error)) from error
+    if manifest.kind is not RegistryRecordKind.EXPERIMENT:
+        raise StudioError(f"{logical_id!r} is not an experiment record (kind={manifest.kind!r}).")
+    if not isinstance(payload, ExperimentRecord):
+        raise StudioError(f"Unexpected payload type for experiment {logical_id!r}.")
+
+    forked_trial = payload.trial.model_copy(
+        update={"provenance_ids": (*payload.trial.provenance_ids, manifest.record_id)}
+    )
+    resolved_output_path = Path(output_path)
+    if resolved_output_path.exists():
+        raise StudioError(f"Refusing to overwrite an existing file: {resolved_output_path}")
+    config = ProjectConfig(trial=forked_trial, model_id=payload.model_id)
+    resolved_output_path.write_text(dump_project(config), encoding="utf-8")
+    return _project_summary(config, resolved_output_path)

@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from opentrials.cli import model_commands
+from opentrials.cli import model_commands, registry_commands
 from opentrials.cli.progress import ProgressRenderer
 from opentrials.config import TrialConfigurationError, load_trial
 from opentrials.config.project import ProjectConfigurationError
@@ -151,6 +151,37 @@ def main() -> int:
     )
     models_show_parser.add_argument("model_id")
 
+    registry_parser = commands.add_parser(
+        "registry", help="Manage the local OpenTrials Registry (models/compounds/evidence)."
+    )
+    registry_commands_parser = registry_parser.add_subparsers(
+        dest="registry_command", required=True
+    )
+    registry_seed_parser = registry_commands_parser.add_parser(
+        "seed", help="Register the real models/compounds/evidence this project ships."
+    )
+    registry_seed_parser.add_argument(
+        "--root", type=Path, default=None,
+        help="Defaults to $OPENTRIALS_REGISTRY_ROOT, then ~/.local/share/opentrials/registry.",
+    )
+    registry_seed_parser.add_argument("--r-libs-user", default=None)
+    registry_seed_parser.add_argument("--rscript-path", type=Path, default=None)
+    registry_seed_parser.add_argument("--dotnet-root", default=None)
+    registry_list_parser = registry_commands_parser.add_parser(
+        "list", help="List every registered record, optionally filtered by kind."
+    )
+    registry_list_parser.add_argument("--root", type=Path, default=None)
+    registry_list_parser.add_argument(
+        "--kind",
+        default=None,
+        choices=["model", "compound", "parameter_evidence", "dataset", "experiment"],
+    )
+    registry_show_parser = registry_commands_parser.add_parser(
+        "show", help="Show one registered record's full, re-verified payload."
+    )
+    registry_show_parser.add_argument("--root", type=Path, default=None)
+    registry_show_parser.add_argument("logical_id")
+
     arguments = parser.parse_args()
 
     try:
@@ -179,6 +210,12 @@ def _dispatch(arguments: argparse.Namespace) -> int:
         if arguments.models_command == "list":
             return model_commands.models_list(arguments)
         return model_commands.models_show(arguments)
+    if arguments.command == "registry":
+        if arguments.registry_command == "seed":
+            return registry_commands.registry_seed(arguments)
+        if arguments.registry_command == "list":
+            return registry_commands.registry_list(arguments)
+        return registry_commands.registry_show(arguments)
 
     schema = _sniff_schema(arguments.config)
     if arguments.command == "validate":

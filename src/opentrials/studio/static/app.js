@@ -997,6 +997,7 @@
           "<tbody>" + comparisonRows + "</tbody></table></div></div></div>"
         : "") +
       (runId && data.arms.length === 1 ? cohortPanelHtml() : "") +
+      (runId ? registerExperimentPanelHtml() : "") +
       '<div class="panel"><div class="phead"><span>Full formatted report</span>' +
       '<span><a href="' + reportUrl + '" download="report.html" style="color:var(--signal-text);margin-right:10px;">Download HTML</a>' +
       '<a href="' + reportUrl.replace("report.html", "report.md") + '" download="report.md" style="color:var(--signal-text);">Download Markdown</a></span></div>' +
@@ -1005,9 +1006,54 @@
       '<iframe src="' + reportUrl + '" style="width:100%;height:50vh;border:1px solid var(--border);background:var(--white);"></iframe>' +
       "</div></div>";
 
+    if (runId) wireRegisterExperimentPanel(runId);
     if (runId && data.arms.length === 1) {
       wireCohortPanel(runId);
     }
+  }
+
+  function registerExperimentPanelHtml() {
+    return (
+      '<div class="panel"><div class="phead">Register as Registry experiment</div><div class="pbody">' +
+      '<p style="font-size:10.5px;color:var(--ink-faint);margin:0 0 8px;">Records this run\'s trial protocol in the local Registry for later reuse/forking. Always registered as evidence_class=SIMULATED -- a simulated outcome is never promoted to measured evidence.</p>' +
+      '<div class="field"><span class="flabel">Title</span><input class="finput" id="experimentTitle" /></div>' +
+      '<div class="field"><span class="flabel">Summary (optional)</span><input class="finput" id="experimentSummary" /></div>' +
+      '<div class="field"><span class="flabel">License</span><input class="finput" id="experimentLicense" value="internal" /></div>' +
+      '<span class="btn btn-primary raised" id="registerExperimentBtn" style="cursor:pointer;">Register experiment</span>' +
+      '<div id="registerExperimentResult" style="margin-top:8px;"></div>' +
+      "</div></div>"
+    );
+  }
+
+  function wireRegisterExperimentPanel(runId) {
+    var btn = document.getElementById("registerExperimentBtn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var title = document.getElementById("experimentTitle").value.trim();
+      var summary = document.getElementById("experimentSummary").value.trim();
+      var license = document.getElementById("experimentLicense").value.trim();
+      var resultBox = document.getElementById("registerExperimentResult");
+      if (!title || !license) {
+        resultBox.innerHTML = '<div class="error-banner">Title and license are required.</div>';
+        return;
+      }
+      resultBox.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Registering&hellip;</span>';
+      fetch("/api/run/" + encodeURIComponent(runId) + "/register-experiment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title, summary: summary || null, license: license }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "registration failed"); });
+          return r.json();
+        })
+        .then(function (manifest) {
+          resultBox.innerHTML = '<span style="color:var(--verified);font-size:11px;">Registered as ' + escapeHtml(manifest.logical_id) + " (" + escapeHtml(manifest.evidence_class) + "). See the Registry pane.</span>";
+        })
+        .catch(function (err) {
+          resultBox.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+        });
+    });
   }
 
   function cohortPanelHtml() {
@@ -1289,6 +1335,124 @@
       });
   }
 
+  // ================= Registry pane =================
+
+  var REGISTRY_KINDS = ["model", "compound", "parameter_evidence", "dataset", "experiment"];
+
+  function renderRegistry() {
+    state.activePane = "registry";
+    appMain.innerHTML =
+      '<div class="app-topbar"><div><h3>Registry</h3><div class="sub">Immutable, versioned records of reusable scientific knowledge</div></div></div>' +
+      '<div class="panel"><div class="phead"><span>Records</span><select class="fselect" id="registryKindFilter" style="width:200px;display:inline-block;">' +
+      '<option value="">(all kinds)</option>' +
+      REGISTRY_KINDS.map(function (k) { return '<option value="' + k + '">' + k + "</option>"; }).join("") +
+      "</select></div>" +
+      '<div class="pbody" id="registryList"><span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span></div></div>' +
+      '<div id="registryDetail" style="margin-top:10px;"></div>';
+
+    var loadRegistry = function () {
+      var kind = document.getElementById("registryKindFilter").value;
+      var list = document.getElementById("registryList");
+      list.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span>';
+      fetch("/api/registry" + (kind ? "?kind=" + encodeURIComponent(kind) : ""))
+        .then(function (r) { return r.json(); })
+        .then(function (records) {
+          if (!records.length) {
+            list.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">No records registered yet. Run <code>opentrials registry seed</code>, or register a completed run as an experiment from the Results pane.</span>';
+            return;
+          }
+          list.innerHTML = '<div style="overflow-x:auto"><table class="arms-table">' +
+            "<thead><tr><th>Logical ID</th><th>Kind</th><th>Version</th><th>Evidence class</th><th>License</th><th></th></tr></thead><tbody>" +
+            records.map(function (r) {
+              return (
+                '<tr><td class="mono">' + escapeHtml(r.logical_id) + "</td>" +
+                "<td>" + escapeHtml(r.kind) + "</td>" +
+                '<td class="mono">' + escapeHtml(r.version) + "</td>" +
+                '<td><span class="tag" style="color:' + evidenceClassColor(r.evidence_class) + '">' + escapeHtml(r.evidence_class) + "</span></td>" +
+                "<td>" + escapeHtml(r.license) + "</td>" +
+                '<td><span class="btn raised" style="cursor:pointer;" data-logical-id="' + escapeAttr(r.logical_id) + '">Inspect</span></td>' +
+                "</tr>"
+              );
+            }).join("") + "</tbody></table></div>";
+          list.querySelectorAll("[data-logical-id]").forEach(function (btn) {
+            btn.addEventListener("click", function () { loadRegistryDetail(btn.dataset.logicalId); });
+          });
+        });
+    };
+    document.getElementById("registryKindFilter").addEventListener("change", loadRegistry);
+    loadRegistry();
+  }
+
+  function evidenceClassColor(evidenceClass) {
+    if (evidenceClass === "SIMULATED" || evidenceClass === "ASSUMED") return "var(--pending)";
+    if (evidenceClass === "MEASURED" || evidenceClass === "CURATED") return "var(--verified)";
+    return "var(--ink-soft)";
+  }
+
+  function loadRegistryDetail(logicalId) {
+    var detail = document.getElementById("registryDetail");
+    detail.innerHTML = '<div class="empty-state">Loading&hellip;</div>';
+    fetch("/api/registry/" + encodeURIComponent(logicalId))
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not load record"); });
+        return r.json();
+      })
+      .then(function (d) { renderRegistryDetail(d, logicalId); })
+      .catch(function (err) {
+        detail.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+      });
+  }
+
+  function renderRegistryDetail(d, logicalId) {
+    var detail = document.getElementById("registryDetail");
+    var m = d.manifest;
+    var forkAction = m.kind === "EXPERIMENT"
+      ? '<div class="field"><span class="flabel">Fork into a new project.yaml</span>' +
+        '<div class="arms-cell-pair"><input class="finput mono" id="forkOutputPath" value="forked_project.yaml" style="flex:2" />' +
+        '<span class="btn btn-primary raised" id="forkBtn" style="cursor:pointer;">Fork</span></div></div>' +
+        '<div id="forkResult" style="margin-top:6px;"></div>'
+      : "";
+
+    detail.innerHTML =
+      '<div class="panel"><div class="phead">' + escapeHtml(logicalId) + "</div><div class=\"pbody\">" +
+      '<div class="propgrid">' +
+      '<div class="prow"><div class="pk">Record ID</div><div class="pv mono">' + escapeHtml(m.record_id) + "</div></div>" +
+      '<div class="prow"><div class="pk">Kind</div><div class="pv">' + escapeHtml(m.kind) + "</div></div>" +
+      '<div class="prow"><div class="pk">Version</div><div class="pv mono">' + escapeHtml(m.version) + "</div></div>" +
+      '<div class="prow"><div class="pk">Evidence class</div><div class="pv" style="color:' + evidenceClassColor(m.evidence_class) + '">' + escapeHtml(m.evidence_class) + "</div></div>" +
+      '<div class="prow"><div class="pk">License</div><div class="pv">' + escapeHtml(m.license) + "</div></div>" +
+      '<div class="prow"><div class="pk">Source</div><div class="pv">' + escapeHtml(m.source.kind) + ": " + escapeHtml(m.source.identifier) + "</div></div>" +
+      (m.applies_to_model_ids.length ? '<div class="prow"><div class="pk">Applies to</div><div class="pv">' + escapeHtml(m.applies_to_model_ids.join(", ")) + "</div></div>" : "") +
+      "</div>" +
+      (forkAction ? '<div style="margin-top:10px;">' + forkAction + "</div>" : "") +
+      '<div class="field" style="margin-top:10px;"><span class="flabel">Payload</span>' +
+      '<pre style="white-space:pre-wrap;font-size:10px;background:var(--well);border:1px solid var(--border-soft);padding:8px;max-height:280px;overflow:auto;">' + escapeHtml(JSON.stringify(d.payload, null, 2)) + "</pre></div>" +
+      "</div></div>";
+
+    if (m.kind === "EXPERIMENT") {
+      document.getElementById("forkBtn").addEventListener("click", function () {
+        var outputPath = document.getElementById("forkOutputPath").value.trim();
+        var forkResult = document.getElementById("forkResult");
+        forkResult.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Forking&hellip;</span>';
+        fetch("/api/registry/" + encodeURIComponent(logicalId) + "/fork", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ output_path: outputPath }),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "fork failed"); });
+            return r.json();
+          })
+          .then(function (project) {
+            forkResult.innerHTML = '<span style="color:var(--verified);font-size:11px;">Forked to ' + escapeHtml(project.path) + ' -- open it from the toolbar to continue editing.</span>';
+          })
+          .catch(function (err) {
+            forkResult.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+          });
+      });
+    }
+  }
+
   // ================= Model Builder pane =================
 
   function renderModelBuilder() {
@@ -1516,6 +1680,10 @@
       }
       if (pane === "evidence") {
         renderEvidence();
+        return;
+      }
+      if (pane === "registry") {
+        renderRegistry();
         return;
       }
       if (!state.project) return;

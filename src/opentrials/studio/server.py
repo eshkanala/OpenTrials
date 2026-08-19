@@ -78,6 +78,16 @@ class CompareCohortsRequest(BaseModel):
     group_b_label: str
 
 
+class RegisterExperimentRequest(BaseModel):
+    title: str
+    summary: str | None = None
+    license: str
+
+
+class ForkExperimentRequest(BaseModel):
+    output_path: str
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_ROOT / "index.html")
@@ -312,5 +322,36 @@ def post_compare_cohorts(run_id: str, request: CompareCohortsRequest) -> dict[st
             group_a_label=request.group_a_label,
             group_b_label=request.group_b_label,
         )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/registry")
+def get_registry_records(kind: str | None = None) -> list[dict[str, Any]]:
+    return bridge.list_registry_records(kind)
+
+
+@app.get("/api/registry/{logical_id}")
+def get_registry_record(logical_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_registry_record(logical_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/run/{run_id}/register-experiment")
+def post_register_experiment(run_id: str, request: RegisterExperimentRequest) -> dict[str, Any]:
+    try:
+        return bridge.register_run_as_experiment(
+            run_id, title=request.title, summary=request.summary, license=request.license
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/registry/{logical_id}/fork")
+def post_fork_experiment(logical_id: str, request: ForkExperimentRequest) -> dict[str, Any]:
+    try:
+        return bridge.fork_experiment(logical_id, output_path=request.output_path)
     except bridge.StudioError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

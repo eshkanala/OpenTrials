@@ -599,3 +599,56 @@ def test_get_run_report_markdown_raises_for_an_unknown_run_id() -> None:
 def test_get_historical_run_report_markdown_raises_for_a_missing_run(tmp_path: Path) -> None:
     with pytest.raises(bridge.StudioError):
         bridge.get_historical_run_report_markdown(str(tmp_path / "OTR-population-nope"))
+
+
+# ================= Registry =================
+
+
+def test_list_registry_records_is_empty_for_a_fresh_root(tmp_path: Path) -> None:
+    assert bridge.list_registry_records(root=str(tmp_path / "registry")) == []
+
+
+def test_get_registry_record_raises_for_an_unknown_logical_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.get_registry_record("no-such-thing", root=str(tmp_path / "registry"))
+
+
+def test_register_run_as_experiment_raises_for_an_unknown_run_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.register_run_as_experiment(
+            "no-such-run", title="x", license="CC-BY-4.0", root=str(tmp_path / "registry")
+        )
+
+
+def test_fork_experiment_raises_for_an_unknown_logical_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.fork_experiment(
+            "no-such-experiment",
+            output_path=str(tmp_path / "forked.yaml"),
+            root=str(tmp_path / "registry"),
+        )
+
+
+def test_fork_experiment_raises_when_the_target_record_is_not_an_experiment(
+    tmp_path: Path,
+) -> None:
+    from opentrials.compound import Compound, CompoundIdentity
+    from opentrials.registry import EvidenceClass, FilesystemRegistryBackend, RegistrySource
+    from opentrials.registry.schema import RegistryRecordKind as _Kind
+
+    backend = FilesystemRegistryBackend(tmp_path / "registry")
+    backend.put(
+        _Kind.COMPOUND,
+        Compound(identity=CompoundIdentity(compound_id="aciclovir", preferred_name="Aciclovir")),
+        logical_id="aciclovir",
+        evidence_class=EvidenceClass.CURATED,
+        license="CC-BY-4.0",
+        source=RegistrySource(kind="manual_curation", identifier="test"),
+    )
+
+    with pytest.raises(bridge.StudioError, match="not an experiment record"):
+        bridge.fork_experiment(
+            "aciclovir",
+            output_path=str(tmp_path / "forked.yaml"),
+            root=str(tmp_path / "registry"),
+        )
