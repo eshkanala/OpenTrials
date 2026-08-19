@@ -1,0 +1,135 @@
+# TEMPORARY, one-off workflow for the v1.0.0 external clean-install
+# reproduction gate.
+#
+# Simulates an outside researcher on a genuinely fresh machine: clone the
+# public repository, follow only what docs/quickstart.md and README.md
+# actually say, install dependencies, run the quickstart, execute a real
+# OSP-backed example, and generate a report. Nothing here reuses any
+# tribal knowledge from prior local development -- if a step here needs
+# something the public docs don't say, that is exactly the kind of gap
+# this workflow exists to find.
+#
+# Manually triggered (workflow_dispatch), not part of the regular CI
+# pipeline. Delete once the v1.0.0 release gate is complete.
+
+name: Clean-install reproduction (temporary, v1.0.0 gate)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (README "Install" step)
+        run: uv sync --all-extras
+
+      - name: opentrials --version
+        run: uv run opentrials --version
+
+      - name: Create a project (README "Create a project" step)
+        run: uv run opentrials init
+
+      - name: Validate the project (README step)
+        run: uv run opentrials validate project.yaml
+
+      - name: Add the Microsoft package repository
+        run: |
+          wget https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update
+
+      - name: Install .NET runtimes and rSharp/ospsuite system dependencies
+        run: |
+          sudo apt-get install -y \
+            dotnet-runtime-8.0 dotnet-runtime-10.0 \
+            libcurl4-openssl-dev libssl-dev libxml2-dev \
+            libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
+
+      - name: Ensure en_US.UTF-8 locale is available
+        run: |
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale LANG=en_US.UTF-8
+
+      - name: Install R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.4"
+
+      - name: Install rSharp and ospsuite from the OSP R-universe
+        run: |
+          Rscript -e 'install.packages("digest", repos = "https://cloud.r-project.org")'
+          Rscript -e 'install.packages("rSharp", repos = c(OSP = "https://open-systems-pharmacology.r-universe.dev", getOption("repos")))'
+          Rscript -e 'install.packages("ospsuite", repos = c(OSP = "https://open-systems-pharmacology.r-universe.dev", getOption("repos")))'
+
+      - name: Report installed toolchain versions
+        run: |
+          dotnet --list-runtimes
+          Rscript -e 'cat("R:", R.version.string, "\n"); cat("ospsuite:", as.character(packageVersion("ospsuite")), "\n")'
+
+      - name: Locate the bundled Aciclovir PKML
+        id: pkml
+        run: |
+          PKML_PATH=$(Rscript -e 'cat(system.file("extdata", "Aciclovir.pkml", package = "ospsuite"))')
+          echo "path=${PKML_PATH}" >> "$GITHUB_OUTPUT"
+          echo "Bundled PKML: ${PKML_PATH}"
+
+      - name: Run a real OSP-backed example (README "Run" step)
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          set -o pipefail
+          LIB_PATH=$(Rscript -e 'cat(.libPaths()[1])')
+          export LD_LIBRARY_PATH="${LIB_PATH}/ospsuite/lib/:${LD_LIBRARY_PATH}"
+          uv run opentrials run examples/aciclovir_dose_comparison.yaml \
+            --r-libs-user "${LIB_PATH}" \
+            --verbose 2>&1 | tee run.log
+
+      - name: Generate a report (README "Generate a report" step)
+        run: |
+          RUN_DIR=$(/bin/ls -d runs/OTR-trial-* | head -1)
+          echo "Run directory: ${RUN_DIR}"
+          uv run opentrials report "${RUN_DIR}" \
+            --population-root runs/populations \
+            --format html
+          test -f report.html
+          echo "Report size: $(wc -c < report.html) bytes"
+
+      - name: Model inspection (README "Model integration" step)
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          LIB_PATH=$(Rscript -e 'cat(.libPaths()[1])')
+          export LD_LIBRARY_PATH="${LIB_PATH}/ospsuite/lib/:${LD_LIBRARY_PATH}"
+          uv run opentrials model inspect "${{ steps.pkml.outputs.path }}" \
+            --r-libs-user "${LIB_PATH}"
+
+      - name: Development checks (CONTRIBUTING.md steps)
+        run: |
+          uv run ruff check src tests
+          uv run mypy src
+          uv run pytest
+
+      - name: Upload run artifacts and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-install-reproduction-output
+          path: |
+            project.yaml
+            report.html
+            run.log
+            runs/**
+          if-no-files-found: warn
+          retention-days: 14
