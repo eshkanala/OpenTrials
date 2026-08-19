@@ -25,7 +25,7 @@ on:
 
 jobs:
   convert:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -33,10 +33,19 @@ jobs:
 
       - name: Add the Microsoft package repository
         run: |
-          wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          wget https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
           sudo dpkg -i packages-microsoft-prod.deb
           rm packages-microsoft-prod.deb
           sudo apt-get update
+
+      # Diagnostic, not a fix: prints exactly which dotnet-runtime packages
+      # this feed actually has before trying to install one. The first
+      # attempt at this workflow (ubuntu-22.04) failed here -- Microsoft's
+      # jammy feed only ships dotnet-runtime-8.0, not the .NET 10 rSharp's
+      # docs currently ask for -- so this step exists to fail fast with a
+      # clean answer rather than repeat that silently.
+      - name: Report available dotnet-runtime packages in this feed
+        run: apt-cache search dotnet-runtime
 
       # Exact package set per rSharp's own published Ubuntu instructions
       # (https://github.com/Open-Systems-Pharmacology/rSharp#ubuntu):
@@ -51,7 +60,7 @@ jobs:
             libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
 
       # ospsuite's own Linux install notes require LC_ALL set to a real
-      # UTF-8 locale; GitHub's ubuntu-22.04 image does not enable
+      # UTF-8 locale; GitHub's ubuntu-24.04 image does not enable
       # en_US.UTF-8 by default.
       - name: Ensure en_US.UTF-8 locale is available
         run: |
