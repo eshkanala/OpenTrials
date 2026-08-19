@@ -4,7 +4,7 @@ This document tracks the current release state of OpenTrials without turning the
 
 ## Current release
 
-**Current release candidate:** `v1.0.0-rc.1`
+**Current release candidate:** `v1.0.0-rc.2`
 
 OpenTrials is feature-complete enough for a release-candidate cycle. The second-model generalization proof (v0.7-C) is now complete; one external scientific proof (independent human validation evidence) remains intentionally open before a final `v1.0.0` release is considered.
 
@@ -22,6 +22,7 @@ OpenTrials is feature-complete enough for a release-candidate cycle. The second-
 | v0.8 | Evidence connector framework and immutable source provenance | Connector framework complete; independent validation evidence externally blocked |
 | v0.9 | Public SDK, thin CLI, verified reports, model onboarding, OSS readiness | Complete |
 | v1.0.0-rc.1 | Release-readiness fixes: license, runtime configuration, versioning, audits | Tagged |
+| v1.0.0-rc.2 | Second-model proof: Midazolam oral model registered and live-proven through generic execution | Tagged |
 
 ## What is live-proven today
 
@@ -51,7 +52,9 @@ The generic model architecture no longer contains aciclovir-specific logic in th
 
 The selected second model is the official GPL-2.0 Open Systems Pharmacology Midazolam model — chosen deliberately as a difficult generalization test: a different compound, hepatic/gut CYP3A4+UGT1A4 clearance rather than renal filtration, and an oral tablet route rather than IV.
 
-The upstream model is distributed as a PK-Sim snapshot rather than a ready `.pkml`; `ospsuite`'s snapshot-conversion backend does not work on macOS. Rather than provisioning a dedicated machine, the conversion ran on a temporary `ubuntu-24.04` GitHub Actions job (`.github/workflows/midazolam-conversion.yml`) using OSP's officially supported Linux toolchain. Three real environment issues were found and fixed from direct evidence rather than guessed: the wrong Ubuntu version for the available `.NET` apt package, an actual `.NET` runtime-version mismatch between rSharp's published docs and its real runtime behavior, and an insufficient job timeout. All 37 declared simulations converted successfully and the script's own verification confirmed the target file's hash.
+The upstream model is distributed as a PK-Sim snapshot rather than a ready `.pkml`; `ospsuite`'s snapshot-conversion backend does not work on macOS. Rather than provisioning a dedicated machine, the conversion ran on a temporary `ubuntu-24.04` GitHub Actions job using OSP's supported Linux toolchain. Three real environment issues were found and fixed from direct evidence rather than guessed: the wrong Ubuntu version for the available `.NET` apt package, an actual `.NET` runtime-version mismatch between rSharp's published docs and its real runtime behavior, and an insufficient job timeout. All 37 declared simulations converted successfully and the conversion's own verification confirmed the target file's hash.
+
+The temporary workflow was removed after the job completed. The reusable macOS-to-Linux workaround, provenance expectations, and post-conversion onboarding steps are documented in [`macos-osp-snapshot-conversion.md`](macos-osp-snapshot-conversion.md).
 
 The converted model was then inspected live (no invented values), registered as a new capability profile, and executed through the same generic orchestration code the aciclovir path already uses — no changes to that code were needed beyond the one hard-coded-assumption fix noted above, live-proven in `tests/integration/test_midazolam_po_pbpk.py`, with zero regression to the full existing live-OSP suite.
 
