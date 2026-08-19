@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
-from opentrials.config.project import ProjectConfigurationError, load_project
+from opentrials.config.project import ProjectConfigurationError, dump_project, load_project
 
 VALID_PROJECT_YAML = """
 schema: opentrials.project
@@ -114,3 +115,46 @@ def test_load_project_allows_omitted_model_id(tmp_path: Path) -> None:
     config = load_project(path)
 
     assert config.model_id is None
+
+
+def test_dump_project_round_trips_through_load(tmp_path: Path) -> None:
+    path = tmp_path / "project.yaml"
+    path.write_text(VALID_PROJECT_YAML, encoding="utf-8")
+    original = load_project(path)
+
+    dumped_yaml = dump_project(original)
+    reopened_path = tmp_path / "project_reopened.yaml"
+    reopened_path.write_text(dumped_yaml, encoding="utf-8")
+    reloaded = load_project(reopened_path)
+
+    assert reloaded == original
+
+
+def test_dump_project_round_trips_with_omitted_model_id(tmp_path: Path) -> None:
+    path = tmp_path / "project.yaml"
+    without_model_id = VALID_PROJECT_YAML.replace(
+        "  model_id: osp.aciclovir.vergin-1995-iv\n", ""
+    )
+    path.write_text(without_model_id, encoding="utf-8")
+    original = load_project(path)
+
+    dumped_yaml = dump_project(original)
+    reopened_path = tmp_path / "project_reopened.yaml"
+    reopened_path.write_text(dumped_yaml, encoding="utf-8")
+    reloaded = load_project(reopened_path)
+
+    assert reloaded == original
+    assert reloaded.model_id is None
+
+
+def test_dump_project_emits_the_canonical_schema_envelope(tmp_path: Path) -> None:
+    path = tmp_path / "project.yaml"
+    path.write_text(VALID_PROJECT_YAML, encoding="utf-8")
+    original = load_project(path)
+
+    dumped_yaml = dump_project(original)
+    dumped = yaml.safe_load(dumped_yaml)
+
+    assert dumped["schema"] == "opentrials.project"
+    assert dumped["schema_version"] == "1.0.0"
+    assert dumped["payload"]["trial"]["trial_id"] == "DEMO-TRIAL"

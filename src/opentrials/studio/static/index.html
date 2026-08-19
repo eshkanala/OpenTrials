@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OpenTrials Studio</title>
+<link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <div class="screen-frame raised">
+    <div class="menubar">
+      <span class="active">File</span><span>Edit</span><span>View</span><span>Trial</span>
+      <span>Analysis</span><span>Tools</span><span>Window</span><span>Help</span>
+    </div>
+    <div class="toolbar">
+      <input class="path-input" id="pathInput" type="text" placeholder="path/to/project.yaml" />
+      <div class="tbtn raised" id="openBtn"><span class="g">&#9660;</span>Open</div>
+      <div class="tbtn raised" id="saveBtn" disabled><span class="g">&#8611;</span>Save</div>
+      <div class="tbtn raised" id="validateBtn" disabled><span class="g">&#10003;</span>Validate</div>
+      <div class="tbtn primary raised" id="runBtn" disabled><span class="g">&#9658;</span>Run</div>
+      <div class="tdiv"></div>
+      <div class="tpath" id="tpath">no project open</div>
+      <div class="spacer"></div>
+      <div class="theme-toggle">
+        <span id="lightBtn" class="on">Light</span><span id="darkBtn">Dark</span>
+      </div>
+    </div>
+    <div class="app-shell">
+      <div class="app-side">
+        <div class="tree-label">Workspace</div>
+        <div class="tree-item sel" data-pane="overview"><span class="car">&#9660;</span>Overview</div>
+        <div class="tree-item" data-pane="builder"><span class="car">&#9654;</span>Trial builder</div>
+        <div class="tree-item" data-pane="run"><span class="car">&#9654;</span>Live execution</div>
+        <div class="tree-item" data-pane="results"><span class="car">&#9654;</span>Results</div>
+        <div class="tree-item" data-pane="provenance"><span class="car">&#9654;</span>Provenance</div>
+        <div class="tree-item" data-pane="evidence"><span class="car">&#9654;</span>Evidence</div>
+        <div class="tree-label">Model</div>
+        <div class="tree-item" data-pane="model-builder"><span class="car">&#9654;</span>Model builder</div>
+      </div>
+      <div class="app-main" id="appMain">
+        <div class="empty-state">Open a project.yaml to begin.<br />Try <code>examples/aciclovir/trial.yaml</code> is a legacy-schema trial &mdash; use an <code>opentrials.project</code> file, e.g. one from <code>opentrials init</code>.</div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="seg sunken" id="statusState">Ready</div>
+      <div class="seg sunken" id="statusPop">&mdash;</div>
+      <div class="seg grow"></div>
+      <div class="seg sunken">OpenTrials Studio v0.1</div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

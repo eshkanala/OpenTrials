@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from opentrials.core.serialization import SchemaDocument
+from opentrials.core.serialization import SchemaDocument, document
 from opentrials.trials import Trial
 
 PROJECT_SCHEMA = "opentrials.project"
@@ -84,3 +84,18 @@ def load_project(path: str | Path) -> ProjectConfig:
         return ProjectConfig.model_validate(document.payload)
     except ValidationError as error:
         raise ProjectConfigurationError(f"Invalid project payload: {error}") from error
+
+
+def dump_project(config: ProjectConfig) -> str:
+    """Serialize a ``ProjectConfig`` back to canonical ``opentrials.project`` YAML.
+
+    Round-trips with ``load_project``: ``load_project(path)`` -> ``dump_project``
+    -> ``load_project`` again produces an equivalent ``ProjectConfig`` (see
+    ``tests/unit/test_config_project.py``). Uses the same canonical
+    normalization (``core.serialization.document``) already used for hashing
+    and manifests elsewhere, so this is not a second, independent
+    serialization scheme.
+    """
+    schema_document = document(PROJECT_SCHEMA, config, schema_version=PROJECT_SCHEMA_VERSION)
+    payload = schema_document.model_dump(mode="json", by_alias=True)
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)

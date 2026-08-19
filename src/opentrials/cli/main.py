@@ -131,6 +131,16 @@ def main() -> int:
     model_init_parser.add_argument("--model-id", required=True)
     model_init_parser.add_argument("--output", type=Path, default=None)
 
+    studio = commands.add_parser(
+        "studio", help="Launch OpenTrials Studio, a local browser-based GUI."
+    )
+    studio.add_argument("config", type=Path, nargs="?", default=None)
+    studio.add_argument("--host", default="127.0.0.1")
+    studio.add_argument("--port", type=int, default=8765)
+    studio.add_argument(
+        "--no-browser", action="store_true", help="Print the URL but do not open a browser."
+    )
+
     models_parser = commands.add_parser(
         "models", help="Inspect the local registered-model registry."
     )
@@ -159,6 +169,8 @@ def _dispatch(arguments: argparse.Namespace) -> int:
         return _report(arguments)
     if arguments.command == "init":
         return _init(arguments)
+    if arguments.command == "studio":
+        return _studio(arguments)
     if arguments.command == "model":
         if arguments.model_command == "inspect":
             return model_commands.model_inspect(arguments)
@@ -186,6 +198,33 @@ def _init(arguments: argparse.Namespace) -> int:
     print("Next:")
     print(f"  opentrials validate {output_path}")
     print(f"  opentrials run {output_path} --r-libs-user <path to your ospsuite R library>")
+    return 0
+
+
+def _studio(arguments: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "Studio unavailable: the 'studio' extra is not installed.\n"
+            "Install it with: pip install 'opentrials[studio]'"
+        )
+        return 2
+
+    from opentrials.studio.server import app
+
+    url = f"http://{arguments.host}:{arguments.port}/"
+    if arguments.config is not None:
+        url += f"?path={arguments.config}"
+
+    if not arguments.no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+
+    print(f"OpenTrials Studio: {url}")
+    uvicorn.run(app, host=arguments.host, port=arguments.port, log_level="warning")
     return 0
 
 
