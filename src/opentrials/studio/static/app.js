@@ -9,6 +9,7 @@
   var saveBtn = document.getElementById("saveBtn");
   var validateBtn = document.getElementById("validateBtn");
   var runBtn = document.getElementById("runBtn");
+  var exportBtn = document.getElementById("exportBtn");
   var tpath = document.getElementById("tpath");
   var appMain = document.getElementById("appMain");
   var statusState = document.getElementById("statusState");
@@ -19,6 +20,18 @@
     "TRANSDERMAL", "INTRANASAL", "OCULAR", "RECTAL", "OTHER",
   ];
   var SEXES = ["FEMALE", "MALE", "INTERSEX", "UNSPECIFIED"];
+  var ENDPOINT_TYPES = [
+    "PK", "PD", "BIOMARKER", "PHYSIOLOGIC", "CLINICAL", "TIME_TO_EVENT", "SAFETY", "DISEASE_PROGRESSION",
+  ];
+  var AGGREGATIONS = ["RAW", "LAST", "MEAN", "MEDIAN", "MINIMUM", "MAXIMUM", "AUC", "TIME_TO_EVENT"];
+  var MISSINGNESS_RULES = ["EXCLUDE", "REPORT", "IMPUTE_LATER"];
+  var ELIGIBILITY_OPERATORS = [
+    "EQUALS", "NOT_EQUALS", "GREATER_THAN", "GREATER_THAN_OR_EQUAL", "LESS_THAN",
+    "LESS_THAN_OR_EQUAL", "IN", "NOT_IN", "IS_TRUE", "IS_FALSE",
+  ];
+  var NUMERIC_OPERATORS = ["GREATER_THAN", "GREATER_THAN_OR_EQUAL", "LESS_THAN", "LESS_THAN_OR_EQUAL"];
+  var MEMBERSHIP_OPERATORS = ["IN", "NOT_IN"];
+  var BOOLEAN_OPERATORS = ["IS_TRUE", "IS_FALSE"];
 
   // Mirrors cli/progress.py's _STAGE_LABELS -- Studio must render the exact
   // same stage vocabulary the CLI does, not an invented one.
@@ -120,11 +133,27 @@
     }).join("");
   }
 
+  function showInlineError(message) {
+    var existing = document.getElementById("inlineErrorBanner");
+    if (existing) existing.remove();
+    var banner = document.createElement("div");
+    banner.id = "inlineErrorBanner";
+    banner.className = "error-banner";
+    banner.style.marginBottom = "10px";
+    banner.innerHTML = "<strong>Error.</strong> " + escapeHtml(message) +
+      ' <span style="cursor:pointer;text-decoration:underline;float:right;" id="dismissInlineError">dismiss</span>';
+    appMain.insertBefore(banner, appMain.firstChild);
+    document.getElementById("dismissInlineError").addEventListener("click", function () {
+      banner.remove();
+    });
+  }
+
   function renderError(message) {
     appMain.innerHTML = '<div class="error-banner"><strong>Could not open project.</strong><br />' + escapeHtml(message) + "</div>";
     saveBtn.setAttribute("disabled", "disabled");
     validateBtn.setAttribute("disabled", "disabled");
     runBtn.setAttribute("disabled", "disabled");
+    exportBtn.setAttribute("disabled", "disabled");
     tpath.textContent = "no project open";
     statusState.textContent = "Error";
     statusPop.textContent = "—";
@@ -139,6 +168,7 @@
     saveBtn.removeAttribute("disabled");
     validateBtn.removeAttribute("disabled");
     runBtn.removeAttribute("disabled");
+    exportBtn.removeAttribute("disabled");
     statusState.textContent = "Ready";
     statusPop.textContent = project.population.size + " participant(s)";
 
@@ -206,8 +236,126 @@
       '<div class="phead">Validation</div>' +
       '<div class="pbody" id="validationBody"><span style="color:var(--ink-faint);font-size:11px;">Not yet checked &mdash; click Validate.</span></div>' +
       "</div>" +
+      (project.resolved_model && project.resolved_model.physiology_targets.length
+        ? '<div class="panel">' +
+          '<div class="phead">Physiology states</div>' +
+          '<div class="pbody">' +
+          '<p style="font-size:10.5px;color:var(--ink-faint);margin:0 0 8px;">Executes the whole population at each declared state (not a partition, unlike arms). Verified target(s) for this model: ' + escapeHtml(project.resolved_model.physiology_targets.join(", ")) + ".</p>" +
+          '<table class="arms-table" id="physiologyStatesTable">' +
+          "<thead><tr><th>State ID</th><th>Scale factor</th><th>Baseline</th><th></th></tr></thead>" +
+          "<tbody>" +
+          physiologyStateRowHtml("baseline", 1.0, 0, true) +
+          physiologyStateRowHtml("reduced", 0.6, 1, false) +
+          "</tbody></table>" +
+          '<div class="addrow-btn" id="addPhysiologyStateBtn">+ Add state</div>' +
+          '<div style="margin-top:8px;"><span class="btn btn-primary raised" id="runPhysiologyBtn" style="cursor:pointer;">Run physiology comparison</span></div>' +
+          '<div id="physiologyRunResult" style="margin-top:8px;"></div>' +
+          "</div>" +
+          "</div>"
+        : "") +
       "</div>" +
       "</div>";
+
+    if (project.resolved_model && project.resolved_model.physiology_targets.length) {
+      wirePhysiologyPanel(project);
+    }
+  }
+
+  function physiologyStateRowHtml(stateId, scaleFactor, idx, isBaseline) {
+    return (
+      '<tr data-idx="' + idx + '">' +
+      '<td><input class="finput mono" style="width:90px" data-field="state_id" value="' + escapeAttr(stateId) + '" /></td>' +
+      '<td><input class="finput mono" style="width:70px" data-field="scale_factor" type="number" step="any" value="' + scaleFactor + '" /></td>' +
+      '<td style="text-align:center;"><input type="radio" name="physiologyBaseline"' + (isBaseline ? " checked" : "") + " /></td>" +
+      '<td class="rm" data-action="remove">&times;</td>' +
+      "</tr>"
+    );
+  }
+
+  function wirePhysiologyPanel(project) {
+    var target = project.resolved_model.physiology_targets[0];
+
+    function wireRows() {
+      wireRemoveButtons("physiologyStatesTable");
+    }
+    wireRows();
+
+    document.getElementById("addPhysiologyStateBtn").addEventListener("click", function () {
+      var tbody = document.querySelector("#physiologyStatesTable tbody");
+      var n = tbody.children.length;
+      tbody.insertAdjacentHTML("beforeend", physiologyStateRowHtml("state-" + (n + 1), 1.0, n, false));
+      wireRows();
+    });
+
+    document.getElementById("runPhysiologyBtn").addEventListener("click", function () {
+      var rows = document.querySelectorAll("#physiologyStatesTable tbody tr");
+      var states = [];
+      var baselineStateId = null;
+      rows.forEach(function (row) {
+        var stateId = row.querySelector('[data-field="state_id"]').value.trim();
+        var scaleFactor = parseFloat(row.querySelector('[data-field="scale_factor"]').value);
+        var isBaseline = row.querySelector('input[name="physiologyBaseline"]').checked;
+        if (isBaseline) baselineStateId = stateId;
+        states.push({
+          state_id: stateId,
+          target: target,
+          scale_factor: scaleFactor,
+          unit: "dimensionless",
+          purpose: isBaseline ? "baseline" : "declared comparison state",
+        });
+      });
+      var resultBox = document.getElementById("physiologyRunResult");
+      if (states.length < 2) {
+        resultBox.innerHTML = '<div class="error-banner">At least two states are required.</div>';
+        return;
+      }
+      if (!baselineStateId) {
+        resultBox.innerHTML = '<div class="error-banner">Select a baseline state.</div>';
+        return;
+      }
+      resultBox.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Starting&hellip;</span>';
+      fetch("/api/physiology/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: state.path, states: states, baseline_state_id: baselineStateId }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "run failed to start"); });
+          return r.json();
+        })
+        .then(function (res) { pollPhysiologyRun(res.run_id, resultBox); })
+        .catch(function (err) {
+          resultBox.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+        });
+    });
+  }
+
+  function pollPhysiologyRun(runId, resultBox) {
+    fetch("/api/physiology/run/" + runId)
+      .then(function (r) { return r.json(); })
+      .then(function (poll) {
+        if (poll.status === "running") {
+          var lastEvent = poll.events.length ? poll.events[poll.events.length - 1] : null;
+          resultBox.innerHTML = '<span style="color:var(--signal-text);font-size:11px;">Running&hellip; ' +
+            (lastEvent ? escapeHtml(lastEvent.stage) : "") + "</span>";
+          setTimeout(function () { pollPhysiologyRun(runId, resultBox); }, 800);
+        } else if (poll.status === "completed") {
+          var m = poll.manifest;
+          var rows = m.states.map(function (s) {
+            return (
+              '<div class="prow"><div class="pk">' + escapeHtml(s.state_id) + "</div>" +
+              '<div class="pv">scale &times;' + s.override_scale_factor + " &middot; " +
+              (s.physiology_state_verified ? '<span style="color:var(--verified)">verified</span>' : '<span style="color:var(--absent)">unverified</span>') +
+              "</div></div>"
+            );
+          }).join("");
+          resultBox.innerHTML =
+            '<div class="propgrid">' + rows + "</div>" +
+            '<p style="font-size:10px;color:var(--ink-faint);margin:8px 0 0;">Run directory: ' + escapeHtml(poll.run_directory) + "<br/>Comparison artifact: " + escapeHtml(m.comparison_id) + "</p>";
+        } else {
+          resultBox.innerHTML = '<div class="error-banner"><strong>Run failed.</strong><br />' + escapeHtml(poll.error) + "</div>";
+        }
+      });
   }
 
   function collectOverviewEdits() {
@@ -247,6 +395,58 @@
     );
   }
 
+  function endpointRowHtml(ep, idx) {
+    return (
+      '<tr data-idx="' + idx + '">' +
+      '<td><input class="finput mono" style="width:96px" data-field="endpoint_id" value="' + escapeAttr(ep.endpoint_id) + '" /></td>' +
+      '<td><select class="fselect" data-field="endpoint_type">' + selectOptionsHtml(ENDPOINT_TYPES, ep.endpoint_type) + "</select></td>" +
+      '<td><input class="finput mono" style="width:130px" data-field="measurement" value="' + escapeAttr(ep.measurement) + '" /></td>' +
+      '<td><div class="arms-cell-pair"><input class="finput mono" data-field="window_start_value" type="number" step="any" value="' + ep.time_window.start.value + '" />' +
+      '<input class="finput mono" data-field="window_start_unit" value="' + escapeAttr(ep.time_window.start.unit) + '" /></div></td>' +
+      '<td><div class="arms-cell-pair"><input class="finput mono" data-field="window_end_value" type="number" step="any" value="' + ep.time_window.end.value + '" />' +
+      '<input class="finput mono" data-field="window_end_unit" value="' + escapeAttr(ep.time_window.end.unit) + '" /></div></td>' +
+      '<td><select class="fselect" data-field="aggregation">' + selectOptionsHtml(AGGREGATIONS, ep.aggregation) + "</select></td>" +
+      '<td><select class="fselect" data-field="missingness_rule">' + selectOptionsHtml(MISSINGNESS_RULES, ep.missingness_rule) + "</select></td>" +
+      '<td><input class="finput mono" style="width:110px" data-field="analysis_method" value="' + escapeAttr(ep.analysis_method) + '" /></td>' +
+      '<td><input class="finput mono" style="width:60px" data-field="unit" value="' + escapeAttr(ep.unit) + '" /></td>' +
+      '<td class="rm" data-action="remove">&times;</td>' +
+      "</tr>"
+    );
+  }
+
+  function eligibilityRowHtml(criterion, idx, group) {
+    var raw = "";
+    if (criterion.value_kind === "list") raw = criterion.value.join(", ");
+    else if (criterion.value_kind === "scientific") raw = criterion.value.value + " " + criterion.value.unit;
+    else if (criterion.value_kind === "plain") raw = String(criterion.value);
+    var isBoolean = BOOLEAN_OPERATORS.indexOf(criterion.operator) !== -1;
+    return (
+      '<tr data-idx="' + idx + '" data-group="' + group + '">' +
+      '<td><input class="finput mono" style="width:90px" data-field="criterion_id" value="' + escapeAttr(criterion.criterion_id) + '" /></td>' +
+      '<td><input class="finput mono" style="width:110px" data-field="field_path" value="' + escapeAttr(criterion.field_path) + '" placeholder="e.g. age.value" /></td>' +
+      '<td><select class="fselect" data-field="operator">' + selectOptionsHtml(ELIGIBILITY_OPERATORS, criterion.operator) + "</select></td>" +
+      '<td><input class="finput mono" style="width:110px" data-field="value" value="' + escapeAttr(raw) + '" ' + (isBoolean ? "disabled" : "") +
+      ' placeholder="numeric: 18 year &middot; list: a, b &middot; text: value" /></td>' +
+      '<td><input class="finput mono" style="width:130px" data-field="description" value="' + escapeAttr(criterion.description || "") + '" /></td>' +
+      '<td class="rm" data-action="remove">&times;</td>' +
+      "</tr>"
+    );
+  }
+
+  function windowRowHtml(w, idx) {
+    return (
+      '<tr data-idx="' + idx + '">' +
+      '<td><div class="arms-cell-pair"><input class="finput mono" data-field="start_value" type="number" step="any" value="' + w.start.value + '" />' +
+      '<input class="finput mono" data-field="start_unit" value="' + escapeAttr(w.start.unit) + '" /></div></td>' +
+      '<td><div class="arms-cell-pair"><input class="finput mono" data-field="end_value" type="number" step="any" value="' + w.end.value + '" />' +
+      '<input class="finput mono" data-field="end_unit" value="' + escapeAttr(w.end.unit) + '" /></div></td>' +
+      '<td><div class="arms-cell-pair"><input class="finput mono" data-field="interval_value" type="number" step="any" value="' + w.interval.value + '" />' +
+      '<input class="finput mono" data-field="interval_unit" value="' + escapeAttr(w.interval.unit) + '" /></div></td>' +
+      '<td class="rm" data-action="remove">&times;</td>' +
+      "</tr>"
+    );
+  }
+
   function renderTrialBuilder(project) {
     state.activePane = "builder";
     tpath.textContent = project.path;
@@ -260,6 +460,15 @@
     var ageMax = project.population.age_range ? project.population.age_range.maximum : null;
 
     var armRows = project.arms.map(armRowHtml).join("");
+    var endpointRows = project.endpoints.map(endpointRowHtml).join("");
+    var inclusionRows = project.eligibility.inclusion.map(function (c, i) { return eligibilityRowHtml(c, i, "inclusion"); }).join("");
+    var exclusionRows = project.eligibility.exclusion.map(function (c, i) { return eligibilityRowHtml(c, i, "exclusion"); }).join("");
+    var evidenceTags = project.evidence_ids.map(function (id) {
+      return '<span class="tag" style="margin:2px 4px 2px 0;">' + escapeHtml(id) + "</span>";
+    }).join("") || '<span style="color:var(--ink-faint);font-size:11px;">none attached</span>';
+
+    var schedule = project.observation_schedule;
+    var windowRows = schedule ? schedule.windows.map(windowRowHtml).join("") : "";
 
     appMain.innerHTML =
       '<div class="app-topbar">' +
@@ -287,6 +496,16 @@
       '<div class="addrow-btn" id="addArmBtn">+ Add arm</div>' +
       "</div>" +
       "</div>" +
+      '<div class="panel">' +
+      '<div class="phead"><span>Endpoints</span><span>' + project.endpoints.length + " endpoint(s)</span></div>" +
+      '<div class="pbody">' +
+      '<div style="overflow-x:auto"><table class="arms-table" id="endpointsTable">' +
+      "<thead><tr><th>ID</th><th>Type</th><th>Measurement</th><th>Window start</th><th>Window end</th><th>Aggregation</th><th>Missingness</th><th>Analysis method</th><th>Unit</th><th></th></tr></thead>" +
+      "<tbody>" + endpointRows + "</tbody>" +
+      "</table></div>" +
+      '<div class="addrow-btn" id="addEndpointBtn">+ Add endpoint</div>' +
+      "</div>" +
+      "</div>" +
       "</div>" +
       "<div>" +
       '<div class="panel">' +
@@ -294,6 +513,48 @@
       '<div class="pbody">' +
       '<label class="fradio"><input type="radio" name="randomization" value="PARALLEL"' + (project.randomization === "PARALLEL" ? " checked" : "") + " /> Parallel, fixed allocation</label>" +
       '<label class="fradio"><input type="radio" name="randomization" value="NONE"' + (project.randomization === "NONE" ? " checked" : "") + " /> None (single arm)</label>" +
+      "</div>" +
+      "</div>" +
+      '<div class="panel">' +
+      '<div class="phead"><span>Observation schedule</span></div>' +
+      '<div class="pbody">' +
+      '<label class="fcheck"><input type="checkbox" id="scheduleEnabled"' + (schedule ? " checked" : "") + " /> Declare a sample-collection timeline</label>" +
+      '<p style="font-size:10px;color:var(--ink-faint);margin:4px 0 8px;">Only honored for multi-arm (two or more arms) execution. Leave unchecked to use the solver\'s default output grid.</p>' +
+      '<div id="scheduleFields" style="display:' + (schedule ? "block" : "none") + ';">' +
+      '<div class="field"><span class="flabel">Schedule ID</span><input class="finput" id="scheduleId" value="' + (schedule ? escapeAttr(schedule.schedule_id) : "sampling-schedule") + '" /></div>' +
+      '<div class="field"><span class="flabel">Time unit</span><input class="finput" id="scheduleTimeUnit" value="' + (schedule ? escapeAttr(schedule.time_unit) : "min") + '" /></div>' +
+      '<div style="overflow-x:auto"><table class="arms-table" id="scheduleWindowsTable">' +
+      "<thead><tr><th>Start</th><th>End</th><th>Interval</th><th></th></tr></thead>" +
+      "<tbody>" + windowRows + "</tbody>" +
+      "</table></div>" +
+      '<div class="addrow-btn" id="addWindowBtn">+ Add sampling window</div>' +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      '<div class="panel">' +
+      '<div class="phead"><span>Eligibility &mdash; inclusion</span></div>' +
+      '<div class="pbody">' +
+      '<div style="overflow-x:auto"><table class="arms-table" id="inclusionTable">' +
+      "<thead><tr><th>ID</th><th>Field path</th><th>Operator</th><th>Value</th><th>Description</th><th></th></tr></thead>" +
+      "<tbody>" + inclusionRows + "</tbody>" +
+      "</table></div>" +
+      '<div class="addrow-btn" id="addInclusionBtn">+ Add inclusion criterion</div>' +
+      "</div>" +
+      "</div>" +
+      '<div class="panel">' +
+      '<div class="phead"><span>Eligibility &mdash; exclusion</span></div>' +
+      '<div class="pbody">' +
+      '<div style="overflow-x:auto"><table class="arms-table" id="exclusionTable">' +
+      "<thead><tr><th>ID</th><th>Field path</th><th>Operator</th><th>Value</th><th>Description</th><th></th></tr></thead>" +
+      "<tbody>" + exclusionRows + "</tbody>" +
+      "</table></div>" +
+      '<div class="addrow-btn" id="addExclusionBtn">+ Add exclusion criterion</div>' +
+      "</div>" +
+      "</div>" +
+      '<div class="panel">' +
+      '<div class="phead">Attached evidence</div>' +
+      '<div class="pbody">' + evidenceTags +
+      '<p style="font-size:10.5px;color:var(--ink-faint);margin:8px 0 0;">Attach a real evidence connector ID from the Evidence Browser. Editing here is not yet supported &mdash; use the Evidence pane\'s "Attach to open trial" action.</p>' +
       "</div>" +
       "</div>" +
       '<div class="panel">' +
@@ -324,14 +585,83 @@
       wireArmsTable();
     });
     wireArmsTable();
+
+    document.getElementById("addEndpointBtn").addEventListener("click", function () {
+      var tbody = document.querySelector("#endpointsTable tbody");
+      var n = tbody.children.length;
+      var template = {
+        endpoint_id: "endpoint-" + (n + 1),
+        endpoint_type: "PK",
+        measurement: "plasma concentration",
+        time_window: { start: { value: 0, unit: "hour" }, end: { value: 24, unit: "hour" } },
+        aggregation: "RAW",
+        missingness_rule: "REPORT",
+        analysis_method: "PK endpoints",
+        unit: "mg/L",
+      };
+      tbody.insertAdjacentHTML("beforeend", endpointRowHtml(template, n));
+      wireRemoveButtons("endpointsTable");
+    });
+
+    document.getElementById("addInclusionBtn").addEventListener("click", function () { addEligibilityRow("inclusionTable", "inclusion"); });
+    document.getElementById("addExclusionBtn").addEventListener("click", function () { addEligibilityRow("exclusionTable", "exclusion"); });
+
+    document.getElementById("scheduleEnabled").addEventListener("change", function (e) {
+      document.getElementById("scheduleFields").style.display = e.target.checked ? "block" : "none";
+    });
+    document.getElementById("addWindowBtn").addEventListener("click", function () {
+      var tbody = document.querySelector("#scheduleWindowsTable tbody");
+      var n = tbody.children.length;
+      var template = { start: { value: 0, unit: "min" }, end: { value: 60, unit: "min" }, interval: { value: 15, unit: "min" } };
+      tbody.insertAdjacentHTML("beforeend", windowRowHtml(template, n));
+      wireRemoveButtons("scheduleWindowsTable");
+    });
+    wireRemoveButtons("scheduleWindowsTable");
+
+    wireRemoveButtons("endpointsTable");
+    wireEligibilityTable("inclusionTable");
+    wireEligibilityTable("exclusionTable");
+  }
+
+  function addEligibilityRow(tableId, group) {
+    var tbody = document.querySelector("#" + tableId + " tbody");
+    var n = tbody.children.length;
+    var template = {
+      criterion_id: group + "-" + (n + 1),
+      field_path: "age.value",
+      operator: "GREATER_THAN_OR_EQUAL",
+      value_kind: "scientific",
+      value: { value: 18, unit: "year" },
+      description: "",
+    };
+    tbody.insertAdjacentHTML("beforeend", eligibilityRowHtml(template, n, group));
+    wireEligibilityTable(tableId);
+  }
+
+  function wireRemoveButtons(tableId) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    table.querySelectorAll('[data-action="remove"]').forEach(function (cell) {
+      cell.onclick = function () { cell.closest("tr").remove(); };
+    });
+  }
+
+  function wireEligibilityTable(tableId) {
+    wireRemoveButtons(tableId);
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    table.querySelectorAll('select[data-field="operator"]').forEach(function (sel) {
+      sel.onchange = function () {
+        var valueInput = sel.closest("tr").querySelector('[data-field="value"]');
+        valueInput.disabled = BOOLEAN_OPERATORS.indexOf(sel.value) !== -1;
+      };
+    });
   }
 
   function wireArmsTable() {
     var table = document.getElementById("armsTable");
     if (!table) return;
-    table.querySelectorAll('[data-action="remove"]').forEach(function (cell) {
-      cell.onclick = function () { cell.closest("tr").remove(); };
-    });
+    wireRemoveButtons("armsTable");
     table.querySelectorAll('select[data-field="route"]').forEach(function (sel) {
       sel.onchange = function () {
         var pair = sel.closest("tr").querySelector("[data-infusion-pair]");
@@ -406,7 +736,78 @@
       edits.trial.arms.push(arm);
     });
 
+    edits.trial.endpoints = [];
+    document.querySelectorAll("#endpointsTable tbody tr").forEach(function (row) {
+      var field = function (name) { return row.querySelector('[data-field="' + name + '"]').value; };
+      edits.trial.endpoints.push({
+        endpoint_id: field("endpoint_id"),
+        endpoint_type: field("endpoint_type"),
+        measurement: field("measurement"),
+        time_window: {
+          start: { value: parseFloat(field("window_start_value")), unit: field("window_start_unit"), value_type: "ASSUMED" },
+          end: { value: parseFloat(field("window_end_value")), unit: field("window_end_unit"), value_type: "ASSUMED" },
+        },
+        aggregation: field("aggregation"),
+        missingness_rule: field("missingness_rule"),
+        analysis_method: field("analysis_method"),
+        unit: field("unit"),
+      });
+    });
+
+    edits.trial.eligibility = {
+      inclusion: collectEligibilityRows("inclusionTable"),
+      exclusion: collectEligibilityRows("exclusionTable"),
+    };
+
+    if (document.getElementById("scheduleEnabled").checked) {
+      var windows = [];
+      document.querySelectorAll("#scheduleWindowsTable tbody tr").forEach(function (row) {
+        var field = function (name) { return row.querySelector('[data-field="' + name + '"]').value; };
+        windows.push({
+          start: { value: parseFloat(field("start_value")), unit: field("start_unit"), value_type: "ASSUMED" },
+          end: { value: parseFloat(field("end_value")), unit: field("end_unit"), value_type: "ASSUMED" },
+          interval: { value: parseFloat(field("interval_value")), unit: field("interval_unit"), value_type: "ASSUMED" },
+        });
+      });
+      edits.trial.observation_schedule = {
+        schedule_id: document.getElementById("scheduleId").value.trim() || "sampling-schedule",
+        time_unit: document.getElementById("scheduleTimeUnit").value.trim() || "min",
+        windows: windows,
+      };
+    } else {
+      edits.trial.observation_schedule = null;
+    }
+
     return edits;
+  }
+
+  function collectEligibilityRows(tableId) {
+    var criteria = [];
+    document.querySelectorAll("#" + tableId + " tbody tr").forEach(function (row) {
+      var field = function (name) { return row.querySelector('[data-field="' + name + '"]').value; };
+      var operator = field("operator");
+      var rawValue = field("value").trim();
+      var value = null;
+      if (BOOLEAN_OPERATORS.indexOf(operator) !== -1) {
+        value = null;
+      } else if (NUMERIC_OPERATORS.indexOf(operator) !== -1) {
+        var parts = rawValue.split(/\s+/);
+        value = { value: parseFloat(parts[0]), unit: parts.slice(1).join(" ") || "dimensionless", value_type: "ASSUMED" };
+      } else if (MEMBERSHIP_OPERATORS.indexOf(operator) !== -1) {
+        value = rawValue.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
+      } else {
+        value = rawValue;
+      }
+      var description = field("description");
+      criteria.push({
+        criterion_id: field("criterion_id"),
+        field_path: field("field_path"),
+        operator: operator,
+        value: value,
+        description: description || null,
+      });
+    });
+    return criteria;
   }
 
   // ================= Live execution + Results panes =================
@@ -487,13 +888,271 @@
 
   function renderResults() {
     state.activePane = "results";
-    if (!state.lastRunId || !state.lastRunPoll || state.lastRunPoll.status !== "completed") {
-      appMain.innerHTML = '<div class="empty-state">Results appear here after a run completes.<br />Use Run in the toolbar to execute this project through the real SDK.</div>';
-      return;
-    }
+    var hasLiveResult = state.lastRunId && state.lastRunPoll && state.lastRunPoll.status === "completed";
+
     appMain.innerHTML =
-      '<div class="app-topbar"><div><h3>Results</h3><div class="sub">' + escapeHtml(state.lastRunPoll.run_directory) + "</div></div></div>" +
-      '<iframe src="/api/run/' + encodeURIComponent(state.lastRunId) + '/report.html" style="width:100%;height:68vh;border:1px solid var(--border);background:var(--white);"></iframe>';
+      '<div class="app-topbar"><div><h3>Results</h3><div class="sub">Live run results, or browse any past run on disk</div></div></div>' +
+      '<div class="panel"><div class="phead"><span>Past runs</span><input class="finput mono" id="runsOutputRoot" style="width:220px;display:inline-block;padding:3px 6px;" value="runs" /></div>' +
+      '<div class="pbody" id="pastRunsList"><span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span></div></div>' +
+      '<div id="resultsBody" style="margin-top:10px;"></div>';
+
+    if (hasLiveResult) {
+      loadResultsData(
+        "/api/run/" + encodeURIComponent(state.lastRunId) + "/data",
+        "/api/run/" + encodeURIComponent(state.lastRunId) + "/report.html",
+        state.lastRunPoll.run_directory,
+        state.lastRunId
+      );
+    } else {
+      document.getElementById("resultsBody").innerHTML = '<div class="empty-state">Select a run below, or use Run in the toolbar, to see results.</div>';
+    }
+
+    var loadRuns = function () {
+      var outputRoot = document.getElementById("runsOutputRoot").value.trim() || "runs";
+      var list = document.getElementById("pastRunsList");
+      list.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span>';
+      fetch("/api/runs?output_root=" + encodeURIComponent(outputRoot))
+        .then(function (r) { return r.json(); })
+        .then(function (runs) {
+          if (!runs.length) {
+            list.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">No runs found under this output root.</span>';
+            return;
+          }
+          list.innerHTML = runs.map(function (r) {
+            return (
+              '<div class="prow" style="cursor:pointer;" data-run-directory="' + escapeAttr(r.run_directory) + '">' +
+              '<div class="pk">' + escapeHtml(r.kind) + "</div>" +
+              '<div class="pv mono">' + escapeHtml(r.run_id) + " &middot; " + escapeHtml(r.modified_at) + "</div>" +
+              "</div>"
+            );
+          }).join("");
+          list.querySelectorAll("[data-run-directory]").forEach(function (row) {
+            row.addEventListener("click", function () {
+              var dir = row.dataset.runDirectory;
+              loadResultsData(
+                "/api/runs/data?run_directory=" + encodeURIComponent(dir),
+                "/api/runs/report.html?run_directory=" + encodeURIComponent(dir),
+                dir,
+                null
+              );
+            });
+          });
+        });
+    };
+    document.getElementById("runsOutputRoot").addEventListener("change", loadRuns);
+    loadRuns();
+  }
+
+  function loadResultsData(dataUrl, reportUrl, label, runId) {
+    var body = document.getElementById("resultsBody");
+    if (!body) return;
+    body.innerHTML = '<div class="empty-state">Loading&hellip;</div>';
+    fetch(dataUrl)
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not load results"); });
+        return r.json();
+      })
+      .then(function (data) { renderNativeResults(data, reportUrl, label, runId); })
+      .catch(function (err) {
+        body.innerHTML = '<div class="error-banner"><strong>Could not load results.</strong><br />' + escapeHtml(err.message) + "</div>";
+      });
+  }
+
+  function renderNativeResults(data, reportUrl, label, runId) {
+    var body = document.getElementById("resultsBody");
+
+    var endpointRows = data.endpoints.map(function (e) {
+      return (
+        '<tr><td>' + escapeHtml(e.arm_id || "&mdash;") + "</td><td>" + escapeHtml(e.endpoint_type) + "</td>" +
+        "<td>" + e.n + "</td><td class=\"mono\">" + e.mean.toPrecision(5) + "</td>" +
+        "<td class=\"mono\">" + (e.sample_standard_deviation !== null ? e.sample_standard_deviation.toPrecision(4) : "&mdash;") + "</td>" +
+        "<td class=\"mono\">" + e.minimum.toPrecision(4) + "</td><td class=\"mono\">" + e.maximum.toPrecision(4) + "</td>" +
+        "<td>" + escapeHtml(e.unit) + "</td></tr>"
+      );
+    }).join("");
+
+    var comparisonRows = data.comparisons.map(function (c) {
+      return (
+        '<tr><td>' + escapeHtml(c.arm_a_id) + " vs " + escapeHtml(c.arm_b_id) + "</td><td>" + escapeHtml(c.endpoint_type) + "</td>" +
+        "<td class=\"mono\">" + c.arm_a_mean.toPrecision(4) + "</td><td class=\"mono\">" + c.arm_b_mean.toPrecision(4) + "</td>" +
+        "<td class=\"mono\">" + c.absolute_difference.toPrecision(4) + "</td>" +
+        "<td class=\"mono\">" + (c.relative_difference !== null ? (c.relative_difference * 100).toFixed(1) + "%" : "&mdash;") + "</td>" +
+        "<td>" + escapeHtml(c.unit) + "</td></tr>"
+      );
+    }).join("");
+
+    var chartHtml = data.concentration_time_series.length
+      ? concentrationTimeChartSvg(data.concentration_time_series)
+      : '<span style="color:var(--ink-faint);font-size:11px;">No concentration-time series in this report.</span>';
+
+    body.innerHTML =
+      '<div class="panel"><div class="phead">Concentration-time</div><div class="pbody">' + chartHtml + "</div></div>" +
+      '<div class="panel"><div class="phead">Endpoint summary</div><div class="pbody"><div style="overflow-x:auto"><table class="arms-table">' +
+      "<thead><tr><th>Arm</th><th>Type</th><th>n</th><th>Mean</th><th>SD</th><th>Min</th><th>Max</th><th>Unit</th></tr></thead>" +
+      "<tbody>" + (endpointRows || '<tr><td colspan="8">no endpoints</td></tr>') + "</tbody>" +
+      "</table></div></div></div>" +
+      (data.comparisons.length
+        ? '<div class="panel"><div class="phead">Arm comparisons</div><div class="pbody"><div style="overflow-x:auto"><table class="arms-table">' +
+          "<thead><tr><th>Arms</th><th>Type</th><th>A mean</th><th>B mean</th><th>Abs. diff.</th><th>Rel. diff.</th><th>Unit</th></tr></thead>" +
+          "<tbody>" + comparisonRows + "</tbody></table></div></div></div>"
+        : "") +
+      (runId && data.arms.length === 1 ? cohortPanelHtml() : "") +
+      '<div class="panel"><div class="phead"><span>Full formatted report</span>' +
+      '<span><a href="' + reportUrl + '" download="report.html" style="color:var(--signal-text);margin-right:10px;">Download HTML</a>' +
+      '<a href="' + reportUrl.replace("report.html", "report.md") + '" download="report.md" style="color:var(--signal-text);">Download Markdown</a></span></div>' +
+      '<div class="pbody">' +
+      '<span style="font-size:10px;color:var(--ink-faint);display:block;margin-bottom:6px;">' + escapeHtml(label) + "</span>" +
+      '<iframe src="' + reportUrl + '" style="width:100%;height:50vh;border:1px solid var(--border);background:var(--white);"></iframe>' +
+      "</div></div>";
+
+    if (runId && data.arms.length === 1) {
+      wireCohortPanel(runId);
+    }
+  }
+
+  function cohortPanelHtml() {
+    return (
+      '<div class="panel"><div class="phead">Cohort comparison</div><div class="pbody">' +
+      '<p style="font-size:10.5px;color:var(--ink-faint);margin:0 0 8px;">Define two cohorts from this run\'s own population by demographic predicate, then compare their PK endpoint outcomes. Strict lineage-based matching, not subject_id text.</p>' +
+      '<table class="arms-table" id="cohortDefTable">' +
+      "<thead><tr><th>Label</th><th>Field</th><th>Operator</th><th>Value</th><th>Unit</th></tr></thead>" +
+      "<tbody>" +
+      cohortRowHtml("younger", "demographics.age", "LT", 40, "year") +
+      cohortRowHtml("older", "demographics.age", "GTE", 40, "year") +
+      "</tbody></table>" +
+      '<div style="margin-top:8px;"><span class="btn btn-primary raised" id="compareCohortsBtn" style="cursor:pointer;">Define &amp; compare cohorts</span></div>' +
+      '<div id="cohortResult" style="margin-top:8px;"></div>' +
+      "</div></div>"
+    );
+  }
+
+  function cohortRowHtml(label, fieldId, operator, value, unit) {
+    var numericOps = ["LT", "LTE", "GT", "GTE", "EQ"];
+    return (
+      '<tr>' +
+      '<td><input class="finput mono" style="width:80px" data-field="label" value="' + escapeAttr(label) + '" /></td>' +
+      '<td><input class="finput mono" style="width:110px" data-field="field_id" value="' + escapeAttr(fieldId) + '" /></td>' +
+      '<td><select class="fselect" data-field="operator">' + selectOptionsHtml(numericOps, operator) + "</select></td>" +
+      '<td><input class="finput mono" style="width:60px" data-field="value" type="number" step="any" value="' + value + '" /></td>' +
+      '<td><input class="finput mono" style="width:60px" data-field="unit" value="' + escapeAttr(unit) + '" /></td>' +
+      "</tr>"
+    );
+  }
+
+  function wireCohortPanel(runId) {
+    document.getElementById("compareCohortsBtn").addEventListener("click", function () {
+      var rows = document.querySelectorAll("#cohortDefTable tbody tr");
+      var cohorts = [];
+      rows.forEach(function (row) {
+        var field = function (name) { return row.querySelector('[data-field="' + name + '"]').value; };
+        cohorts.push({
+          label: field("label"),
+          predicates: [
+            {
+              type: "numeric",
+              field_id: field("field_id"),
+              operator: field("operator"),
+              value: parseFloat(field("value")),
+              unit: field("unit"),
+            },
+          ],
+        });
+      });
+      var resultBox = document.getElementById("cohortResult");
+      resultBox.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Defining cohorts&hellip;</span>';
+      fetch("/api/run/" + encodeURIComponent(runId) + "/cohorts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cohorts: cohorts }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "cohort definition failed"); });
+          return r.json();
+        })
+        .then(function (defined) {
+          if (defined.cohorts.length !== 2) throw new Error("expected exactly two cohorts");
+          resultBox.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Comparing&hellip;</span>';
+          return fetch("/api/run/" + encodeURIComponent(runId) + "/cohorts/compare", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              group_a_membership_id: defined.cohorts[0].membership_id,
+              group_b_membership_id: defined.cohorts[1].membership_id,
+              group_a_label: defined.cohorts[0].label,
+              group_b_label: defined.cohorts[1].label,
+            }),
+          });
+        })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "cohort comparison failed"); });
+          return r.json();
+        })
+        .then(function (result) {
+          var rows = result.comparisons.map(function (c) {
+            return (
+              '<tr><td>' + escapeHtml(c.endpoint_type) + "</td>" +
+              "<td class=\"mono\">" + c.group_a_mean.toPrecision(4) + "</td>" +
+              "<td class=\"mono\">" + c.group_b_mean.toPrecision(4) + "</td>" +
+              "<td class=\"mono\">" + c.absolute_difference.toPrecision(4) + "</td>" +
+              "<td class=\"mono\">" + (c.relative_difference !== null ? (c.relative_difference * 100).toFixed(1) + "%" : "&mdash;") + "</td>" +
+              "<td>" + escapeHtml(c.unit) + "</td></tr>"
+            );
+          }).join("");
+          resultBox.innerHTML =
+            '<p style="font-size:10.5px;color:var(--ink-soft);margin:0 0 6px;">' + escapeHtml(result.group_a_label) + " (n=" + result.overlap.group_a_n + ") vs " +
+            escapeHtml(result.group_b_label) + " (n=" + result.overlap.group_b_n + ")</p>" +
+            '<table class="arms-table"><thead><tr><th>Type</th><th>A mean</th><th>B mean</th><th>Abs. diff.</th><th>Rel. diff.</th><th>Unit</th></tr></thead><tbody>' +
+            rows + "</tbody></table>";
+        })
+        .catch(function (err) {
+          resultBox.innerHTML = '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+        });
+    });
+  }
+
+  function concentrationTimeChartSvg(series) {
+    var width = 640, height = 240, padL = 46, padB = 28, padT = 10, padR = 12;
+    var allPoints = series.reduce(function (acc, s) { return acc.concat(s.points); }, []);
+    var xs = allPoints.map(function (p) { return p[0]; });
+    var ys = allPoints.map(function (p) { return p[1]; });
+    var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
+    var yMin = 0, yMax = Math.max.apply(null, ys) * 1.08 || 1;
+    var xScale = function (x) { return padL + (xMax > xMin ? (x - xMin) / (xMax - xMin) : 0) * (width - padL - padR); };
+    var yScale = function (y) { return height - padB - (yMax > yMin ? (y - yMin) / (yMax - yMin) : 0) * (height - padT - padB); };
+    var colors = ["var(--signal)", "var(--verified)", "var(--pending)", "var(--absent)"];
+
+    var paths = series.map(function (s, i) {
+      var d = s.points.map(function (p, idx) {
+        return (idx === 0 ? "M" : "L") + xScale(p[0]).toFixed(1) + "," + yScale(p[1]).toFixed(1);
+      }).join(" ");
+      return '<path d="' + d + '" fill="none" stroke="' + colors[i % colors.length] + '" stroke-width="1.6" />';
+    }).join("");
+
+    var legend = series.map(function (s, i) {
+      return '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:10px;color:var(--ink-soft);">' +
+        '<span style="width:9px;height:9px;background:' + colors[i % colors.length] + ';display:inline-block;"></span>' +
+        escapeHtml(s.label) + "</span>";
+    }).join("");
+
+    var yTicks = [0, 0.25, 0.5, 0.75, 1].map(function (f) {
+      var val = yMin + f * (yMax - yMin);
+      var y = yScale(val);
+      return '<line x1="' + padL + '" y1="' + y + '" x2="' + (width - padR) + '" y2="' + y + '" stroke="var(--border-soft)" stroke-width="1" />' +
+        '<text x="' + (padL - 6) + '" y="' + (y + 3) + '" text-anchor="end" font-size="9" fill="var(--ink-faint)">' + val.toPrecision(3) + "</text>";
+    }).join("");
+
+    var xLabel = series[0].time_unit, yLabel = series[0].unit;
+
+    return (
+      '<div style="margin-bottom:6px;">' + legend + "</div>" +
+      '<svg viewBox="0 0 ' + width + " " + height + '" style="width:100%;max-width:' + width + 'px;height:auto;font-family:&quot;PT Sans&quot;,sans-serif;">' +
+      yTicks +
+      '<line x1="' + padL + '" y1="' + (height - padB) + '" x2="' + (width - padR) + '" y2="' + (height - padB) + '" stroke="var(--ink-faint)" stroke-width="1" />' +
+      paths +
+      '<text x="' + (width / 2) + '" y="' + (height - 4) + '" text-anchor="middle" font-size="9" fill="var(--ink-faint)">time (' + escapeHtml(xLabel) + ")</text>" +
+      '<text x="12" y="' + (padT + 8) + '" font-size="9" fill="var(--ink-faint)">' + escapeHtml(yLabel) + "</text>" +
+      "</svg>"
+    );
   }
 
   // ================= Provenance pane =================
@@ -549,7 +1208,8 @@
   function renderEvidence() {
     state.activePane = "evidence";
     appMain.innerHTML =
-      '<div class="app-topbar"><div><h3>Evidence</h3><div class="sub">Registered external-evidence connectors</div></div></div>' +
+      '<div class="app-topbar"><div><h3>Evidence</h3><div class="sub">Registered external-evidence connectors' +
+      (state.project ? " &middot; open trial: " + escapeHtml(state.project.trial_id) : " &middot; no project open (run only, cannot attach)") + "</div></div></div>" +
       '<div class="panel"><div class="pbody"><table class="evi-table" id="evidenceTable">' +
       "<thead><tr><th>Connector</th><th>Version</th><th>Outcome</th><th></th></tr></thead>" +
       "<tbody></tbody></table></div></div>";
@@ -573,6 +1233,7 @@
             var row = btn.closest("tr");
             var connectorId = row.dataset.connector;
             var outcomeCell = row.querySelector(".outcome");
+            var actionCell = row.querySelector("td:last-child");
             outcomeCell.textContent = "Running…";
             fetch("/api/evidence/" + encodeURIComponent(connectorId) + "/run", { method: "POST" })
               .then(function (r) { return r.json(); })
@@ -581,6 +1242,15 @@
                   outcomeCell.innerHTML =
                     '<span class="role-tag role-ok">' + escapeHtml(result.role) + "</span> " +
                     result.observation_count + " observation(s) &middot; " + escapeHtml(result.license);
+                  if (state.project) {
+                    var attachBtn = document.createElement("span");
+                    attachBtn.className = "btn raised";
+                    attachBtn.style.cursor = "pointer";
+                    attachBtn.style.marginLeft = "6px";
+                    attachBtn.textContent = "Attach to open trial";
+                    attachBtn.addEventListener("click", function () { attachEvidence(connectorId, attachBtn); });
+                    actionCell.appendChild(attachBtn);
+                  }
                 } else {
                   outcomeCell.innerHTML = '<span class="role-tag role-blocked">INELIGIBLE</span> ' + escapeHtml(result.reason);
                 }
@@ -590,6 +1260,32 @@
               });
           });
         });
+      });
+  }
+
+  function attachEvidence(connectorId, buttonEl) {
+    if (!state.project || !state.path) return;
+    buttonEl.textContent = "Ingesting & attaching…";
+    buttonEl.setAttribute("disabled", "disabled");
+    fetch("/api/evidence/" + encodeURIComponent(connectorId) + "/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: state.path }),
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "attach failed"); });
+        return r.json();
+      })
+      .then(function (project) {
+        state.project = project;
+        var newId = project.evidence_ids[project.evidence_ids.length - 1];
+        buttonEl.textContent = "Attached (" + newId + ")";
+        statusState.textContent = "Evidence ingested, persisted, and attached to the open trial";
+      })
+      .catch(function (err) {
+        buttonEl.textContent = "Attach failed";
+        buttonEl.removeAttribute("disabled");
+        showInlineError(err.message);
       });
   }
 
@@ -759,7 +1455,7 @@
       })
       .catch(function (err) {
         statusState.textContent = "Save failed";
-        alert(err.message);
+        showInlineError(err.message);
       });
   });
 
@@ -790,8 +1486,19 @@
       })
       .catch(function (err) {
         statusState.textContent = "Run failed to start";
-        alert(err.message);
+        showInlineError(err.message);
       });
+  });
+
+  exportBtn.addEventListener("click", function () {
+    if (!state.path) return;
+    var a = document.createElement("a");
+    a.href = "/api/project/export?path=" + encodeURIComponent(state.path);
+    a.download = "project.yaml";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    statusState.textContent = "Exported project.yaml";
   });
 
   var treeItems = document.querySelectorAll(".tree-item");

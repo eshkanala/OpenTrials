@@ -12,6 +12,7 @@ from opentrials.compound.intervention import Intervention
 from opentrials.patient.population import PopulationSpec
 from opentrials.trials.eligibility import Eligibility
 from opentrials.trials.endpoints import Endpoint
+from opentrials.trials.schedule import ObservationSchedule
 
 
 class RandomizationType(StrEnum):
@@ -47,6 +48,14 @@ class Trial(BaseModel):
     randomization: RandomizationType
     endpoints: tuple[Endpoint, ...] = Field(min_length=1)
     seed: int
+    observation_schedule: ObservationSchedule | None = Field(
+        default=None,
+        description=(
+            "The trial's declared sample-collection timeline, distinct from dosing "
+            "timing (see trials.schedule). Currently only honored for multi-arm "
+            "(two or more declared arms) execution -- see sdk.project.Project.run."
+        ),
+    )
     analysis_plan: str | None = None
     evidence_ids: tuple[str, ...] = ()
     provenance_ids: tuple[str, ...] = ()

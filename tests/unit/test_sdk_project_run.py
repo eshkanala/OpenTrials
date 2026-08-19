@@ -36,6 +36,8 @@ from opentrials.trials import (
     EndpointAggregation,
     EndpointType,
     MissingnessRule,
+    ObservationSchedule,
+    SamplingWindow,
     TimeWindow,
 )
 from opentrials.trials.trial import RandomizationType, Trial, TrialArm
@@ -258,6 +260,33 @@ def test_project_run_routes_a_multi_arm_trial_to_trial_execution(
     assert {arm.arm_id for arm in run.arms} == {"low", "high"}
 
 
+def test_resolve_population_reuses_a_declared_generation_without_generating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    population_root = build_population(tmp_path)
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("resolve_population must not generate a fresh population here")
+
+    monkeypatch.setattr("opentrials.sdk.project.generate_population", fail_if_called)
+
+    project = Project(
+        ProjectConfig(
+            trial=trial_with(arm("only", 250.0, 1.0), randomization=RandomizationType.NONE),
+            model_id="osp.aciclovir.vergin-1995-iv",
+            population_generation_id=GENERATION_ID,
+            population_root=population_root,
+        )
+    )
+
+    generation_id, resolved_root = project.resolve_population(
+        output_root=tmp_path / "runs", r_libs_user="/fake/r/libs"
+    )
+
+    assert generation_id == GENERATION_ID
+    assert resolved_root == population_root
+
+
 def test_project_run_requires_population_root_alongside_generation_id(tmp_path: Path) -> None:
     project = Project(
         ProjectConfig(
@@ -269,3 +298,77 @@ def test_project_run_requires_population_root_alongside_generation_id(tmp_path: 
 
     with pytest.raises(ValueError, match="population_root is required"):
         project.run(output_root=tmp_path / "runs", r_libs_user="/fake/r/libs")
+
+
+def test_project_run_rejects_a_declared_schedule_on_a_single_arm_trial(tmp_path: Path) -> None:
+    population_root = build_population(tmp_path)
+    schedule = ObservationSchedule(
+        schedule_id="dense-early",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=assumed(0, "min"), end=assumed(60, "min"), interval=assumed(15, "min")
+            ),
+        ),
+    )
+    single_arm_trial = trial_with(arm("only", 250.0, 1.0), randomization=RandomizationType.NONE)
+    trial_with_schedule = single_arm_trial.model_copy(
+        update={"observation_schedule": schedule}
+    )
+    project = Project(
+        ProjectConfig(
+            trial=trial_with_schedule,
+            model_id="osp.aciclovir.vergin-1995-iv",
+            population_generation_id=GENERATION_ID,
+            population_root=population_root,
+        )
+    )
+
+    with pytest.raises(ValueError, match="single-arm population-only execution"):
+        project.run(output_root=tmp_path / "runs", r_libs_user="/fake/r/libs")
+
+
+def test_project_run_threads_a_declared_schedule_to_run_trial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Proves only the wiring this change added: Project.run() extracts
+    # trial.observation_schedule and passes it to sdk.trial.run_trial().
+    # run_trial()'s own handling of a declared schedule (including the
+    # solver read-back verification) is already covered by its own tests
+    # from v0.5-B, so this stubs run_trial() out entirely rather than
+    # re-proving that here.
+    population_root = build_population(tmp_path)
+    schedule = ObservationSchedule(
+        schedule_id="dense-early",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=assumed(0, "min"), end=assumed(60, "min"), interval=assumed(15, "min")
+            ),
+        ),
+    )
+    multi_arm_trial = trial_with(
+        arm("low", 125.0, 0.5), arm("high", 250.0, 0.5), randomization=RandomizationType.PARALLEL
+    )
+    trial_with_schedule = multi_arm_trial.model_copy(update={"observation_schedule": schedule})
+
+    captured: dict[str, object] = {}
+
+    def stub_run_trial(*args: object, **kwargs: object) -> object:
+        captured["observation_schedule"] = kwargs.get("observation_schedule")
+        return "stubbed-trial-run"
+
+    monkeypatch.setattr("opentrials.sdk.project.run_trial", stub_run_trial)
+
+    project = Project(
+        ProjectConfig(
+            trial=trial_with_schedule,
+            model_id="osp.aciclovir.vergin-1995-iv",
+            population_generation_id=GENERATION_ID,
+            population_root=population_root,
+        )
+    )
+    run = project.run(output_root=tmp_path / "runs", r_libs_user="/fake/r/libs")
+
+    assert run == "stubbed-trial-run"
+    assert captured["observation_schedule"] == schedule

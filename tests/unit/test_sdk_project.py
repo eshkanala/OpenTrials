@@ -18,7 +18,7 @@ from opentrials.models.package import ModelPackage
 from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
 from opentrials.models.registry import ModelCapabilityRegistry
 from opentrials.patient import PopulationSpec
-from opentrials.sdk.project import Project, _single_arm_dose_mg
+from opentrials.sdk.project import Project, dose_mg_for_model
 from opentrials.trials import (
     Endpoint,
     EndpointAggregation,
@@ -169,12 +169,12 @@ def test_model_raises_when_registry_is_ambiguous_and_id_omitted() -> None:
         project.model()
 
 
-def test_single_arm_dose_mg_passes_through_matching_unit() -> None:
+def test_dose_mg_for_model_passes_through_matching_unit() -> None:
     dose = _arm("a", 250.0).intervention.regimen.doses[0]
-    assert _single_arm_dose_mg(dose, ACICLOVIR_IV_CAPABILITY_PROFILE) == pytest.approx(250.0)
+    assert dose_mg_for_model(dose, ACICLOVIR_IV_CAPABILITY_PROFILE) == pytest.approx(250.0)
 
 
-def test_single_arm_dose_mg_converts_from_a_different_unit() -> None:
+def test_dose_mg_for_model_converts_from_a_different_unit() -> None:
     intervention = Intervention(
         intervention_id="aciclovir-grams",
         compound=Compound(
@@ -192,4 +192,4 @@ def test_single_arm_dose_mg_converts_from_a_different_unit() -> None:
         ),
     )
     dose = intervention.regimen.doses[0]
-    assert _single_arm_dose_mg(dose, ACICLOVIR_IV_CAPABILITY_PROFILE) == pytest.approx(250.0)
+    assert dose_mg_for_model(dose, ACICLOVIR_IV_CAPABILITY_PROFILE) == pytest.approx(250.0)

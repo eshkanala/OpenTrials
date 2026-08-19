@@ -12,7 +12,9 @@ from opentrials.trials import (
     EndpointAggregation,
     EndpointType,
     MissingnessRule,
+    ObservationSchedule,
     RandomizationType,
+    SamplingWindow,
     TimeWindow,
     Trial,
     TrialArm,
@@ -183,3 +185,66 @@ def test_non_randomized_trial_requires_one_arm() -> None:
             endpoints=(make_endpoint(),),
             seed=2026,
         )
+
+
+def test_trial_observation_schedule_defaults_to_none() -> None:
+    trial = Trial(
+        trial_id="no-schedule",
+        title="No declared schedule",
+        question_of_interest="Does the default solver grid still work?",
+        population=make_population_spec(),
+        arms=(
+            TrialArm(
+                arm_id="a", name="A", intervention=make_intervention("a"), allocation=1.0
+            ),
+        ),
+        randomization=RandomizationType.NONE,
+        endpoints=(make_endpoint(),),
+        seed=2026,
+    )
+
+    assert trial.observation_schedule is None
+
+
+def test_trial_accepts_a_declared_observation_schedule() -> None:
+    schedule = ObservationSchedule(
+        schedule_id="dense-early-sparse-late",
+        time_unit="min",
+        windows=(
+            SamplingWindow(
+                start=observed(0, "min"), end=observed(60, "min"), interval=observed(15, "min")
+            ),
+            SamplingWindow(
+                start=observed(60, "min"),
+                end=observed(480, "min"),
+                interval=observed(60, "min"),
+            ),
+        ),
+    )
+    trial = Trial(
+        trial_id="with-schedule",
+        title="Declared sampling schedule",
+        question_of_interest="Does a declared schedule round-trip?",
+        population=make_population_spec(),
+        arms=(
+            TrialArm(
+                arm_id="low", name="Low", intervention=make_intervention("low"), allocation=0.5
+            ),
+            TrialArm(
+                arm_id="high",
+                name="High",
+                intervention=make_intervention("high"),
+                allocation=0.5,
+            ),
+        ),
+        randomization=RandomizationType.PARALLEL,
+        endpoints=(make_endpoint(),),
+        seed=2026,
+        observation_schedule=schedule,
+    )
+
+    assert trial.observation_schedule == schedule
+    assert trial.observation_schedule.declared_times() == (
+        0.0, 15.0, 30.0, 45.0, 60.0, 120.0, 180.0, 240.0, 300.0, 360.0, 420.0, 480.0,
+    )
+    assert '"observation_schedule"' in trial.canonical_json()
