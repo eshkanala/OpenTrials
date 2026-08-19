@@ -1,74 +1,496 @@
 # OpenTrials
 
-OpenTrials is an open-source, reproducible computational-medicine platform for virtual clinical-trial research. It is **for research and educational use only** and is not a clinical decision-making system.
+**Open, reproducible infrastructure for mechanistic virtual clinical-trial research.**
 
-## Current phase
+OpenTrials is an open-source Python platform for defining, executing, verifying, analyzing, and reporting virtual clinical trials against compatible mechanistic models. It is designed for researchers who want simulation workflows that are **inspectable, reproducible, provenance-aware, and difficult to misrepresent accidentally**.
 
-**v0.1 — Execution credibility** is functionally complete for one deliberately narrow, local OSP engineering workflow: a single virtual individual receiving aciclovir 250 mg IV over 10 minutes through the package-bundled `Vergin 1995 IV` model. OpenTrials hash-pins the model, verifies the structural IV target and parameter read-back before solver execution, preserves raw output, creates canonical PK artifacts, and reports Cmax, Tmax, and AUC₀-last. This is not scientific or clinical validation.
+OpenTrials does not replace a PBPK/QSP engine. It sits around one: it turns a mechanistic model, a virtual population, a declared intervention, and an analysis plan into a traceable research workflow with immutable artifacts and explicit verification at the boundaries where silent mistakes are most dangerous.
 
-**v0.2 — Scientific credibility** (0.2-A through 0.2-C complete) adds an immutable observed-evidence system, a strict trial/study compatibility gate, and a validation engine producing exact alignment/residual/endpoint/metric comparisons and immutable validation artifacts. **0.2-D — an independent rights-cleared human dataset — remains open**; no validation claim against real humans exists yet.
+> **Research and educational use only.** OpenTrials is not a clinical decision-support system, medical device, diagnostic tool, or source of patient-specific treatment advice. A successful simulation is not evidence of clinical validity.
 
-**v0.3 — Uncertainty** declares parameter-uncertainty scenarios, materializes deterministic draws, executes them through verified OSP with full solver-state read-back, and produces persisted sensitivity-ranking artifacts. This is an engineering demonstration using dose as a verified perturbation variable, not a biological/parameter-uncertainty claim.
+**Current release candidate:** `v1.0.0-rc.1`  
+**License:** Apache-2.0  
+**Current live solver integration:** Open Systems Pharmacology (`ospsuite` / PK-Sim-compatible simulations)
 
-**v0.4 — Population response** (tagged `v0.4.0-alpha.1`) executes a whole verified generated population through OSP PBPK in one batched, lineage-preserving call; supports immutable cohort/subgroup membership and descriptive PK comparisons between them; and identifies transparent percentile/rank extreme responders with descriptive baseline-characteristic comparisons against a reference group. No machine-learning selection, no causal language anywhere in a persisted artifact.
+---
 
-**v0.5 — Trial arms & protocol structure** (tagged `v0.5.0-alpha.1`) executes a real prospective multi-arm trial: a population is deterministically allocated across two or more declared arms (largest-remainder apportionment + seeded assignment), each arm's own verified intervention is executed against *only* its assigned participants, and an optional declared observation schedule controls the solver's actual output time grid (read back and verified, not merely requested). Per-arm outcomes are compared descriptively, and the complete run is recorded as one immutable, independently re-verifiable `OTTRIAL-*` provenance artifact. Repeated/multi-dose regimens remain an explicit `BLOCKED_EXTERNAL_CAPABILITY`: the installed `ospsuite` R API has no function to author or edit a dosing protocol, only to mutate parameters on one already built elsewhere (PK-Sim's GUI, unavailable in this headless toolchain), and no available rights-cleared model has a native multi-application protocol.
+## Why OpenTrials exists
 
-**v0.6-A — Physiological state overrides** adds one narrow, empirically verified lever for perturbing a virtual population's physiology: `ospsuite-R` exposes no disease/impairment population API at all, but the pinned Aciclovir model carries a real per-individual glomerular filtration rate (`Organism|Kidney|GFRmat`) that OpenTrials can now declare a typed, evidence-attached override for (`PhysiologicalStateOverride`), execute through PBPK, and compare — recorded as a new immutable `OTPHYS-*` population artifact that never overwrites its source population and preserves identical subject lineage across every physiology state. A fixed `PhysiologyCoverageReport` travels with every override so no result can be read as a disease claim (e.g. "CKD") the model was never asked to support.
+Mechanistic simulation tools can answer sophisticated pharmacology questions, but a complete research workflow involves more than calling a solver. Researchers also need to know:
 
-**v0.6-B — Prospective physiological-state virtual trials** executes the same population and intervention across multiple declared physiological states (not a partition of the population — every state runs the whole thing) and produces a paired, lineage-matched comparison: descriptive state-level PK summaries plus subject-level baseline-vs-state deltas, since the same virtual individual is compared against themselves across states. Two new immutable artifacts: `OTPHYCMP-*` (the comparison) and `OTPHYTRIAL-*` (a top-level, independently re-verifiable provenance record, the physiology-state analogue of `OTTRIAL`). The executed physiological state is read back from the actual reconstructed OSP population and verified rather than trusted, the same discipline already used for dose and observation-schedule execution.
+- exactly which model and model version ran;
+- what population was simulated;
+- which intervention values actually reached the solver;
+- whether the executed protocol matched the declared protocol;
+- how subjects were allocated to arms or subgroups;
+- which output series became the scientific result;
+- which transformations and endpoint rules were applied;
+- where observed evidence came from and what it was originally used for;
+- whether a result can be independently reloaded and verified later;
+- and, just as importantly, what the workflow **does not prove**.
 
-**v0.6-C — Transport optimization** (tagged `v0.6.0-alpha.1`) replaces the JSON-heavy Python↔R population/result transport with an opt-in CSV alternative (`transport="csv"`), using OSP's own `loadPopulation()`/`exportResultsToCSV()`. The original JSON path remains the unchanged default and reference implementation. A capability probe found R-side JSON row-list construction, not the PBPK solver, was the dominant cost (~23s of R-side work for one N=100 result vs. ~0.16s to export as CSV); endpoint values agree between transports within CSV's own ~7-significant-figure text precision (observed max relative difference 7.58e-09 — reported honestly as a bounded approximation, not asserted byte-identical). A verified 10,000-person population was executed and fully persisted in 421s, versus the old path's "well over an hour, never attempted." Per-stage timing surfaced a new, distinct, linearly-scaling bottleneck in Python-side row-list processing — flagged explicitly as follow-up work, not silently absorbed into this milestone's scope.
+OpenTrials makes those concerns first-class parts of the system rather than conventions left to notebooks and memory.
 
-**v0.7-A — Generic model capability + registration** adds a deliberately engine-agnostic `ModelCapabilityProfile` (`models/capability.py`) declaring what one registered model actually supports — compounds, administration routes and their mutable parameters, verified physiology targets, canonical output mappings, and explicit reasoned unsupported-capability entries — as data a generic pipeline can query, plus a minimal `ModelCapabilityRegistry`. Aciclovir is registered as the first profile.
+The intended workflow is:
 
-**v0.7-B — Execution pipeline generalized** rewires the four orchestration modules that actually drive OSP execution (population execution, physiology-state population execution, multi-arm trial execution, physiology-state trial execution) to consume that profile instead of their own hard-coded aciclovir constants — generic orchestration code no longer contains the compound name or its OSP output path anywhere. A new `adapters/osp/capability.py` is the one place allowed to translate a generic profile into OSP-specific shapes. The full opt-in live OSP integration suite passed unchanged through the new generic path, confirming zero scientific-behavior regression.
+```text
+experiment definition
+        +
+registered mechanistic model
+        +
+virtual population / evidence
+        │
+        ▼
+capability + compatibility checks
+        │
+        ▼
+verified engine translation
+        │
+        ▼
+mechanistic simulation
+        │
+        ▼
+immutable raw + canonical artifacts
+        │
+        ▼
+PK / cohort / trial / sensitivity analysis
+        │
+        ▼
+re-verifiable provenance record
+        │
+        ▼
+human-readable research report
+```
 
-**v0.7-C — a second real model** is in progress and externally blocked, not tagged. The chosen candidate, the official GPL-2.0 `Open-Systems-Pharmacology/Midazolam-Model`, ships only as a PK-Sim snapshot, and `ospsuite`'s snapshot-conversion backend does not work on macOS (confirmed: it either refuses to run or segfaults). A reproducible Windows/Linux conversion procedure (`scripts/convert_midazolam_snapshot.R`, `scripts/MIDAZOLAM_CONVERSION.md`) is ready; no generic execution code has changed while this is open, and v0.7 stays untagged until a live second-model proof exists.
+The solver remains responsible for the mechanistic mathematics. OpenTrials is responsible for making the experiment around that solver explicit and reproducible.
 
-**v0.8-A — Evidence connector framework**, developed in parallel so v0.7-C's external blocker doesn't stall the project, adds a deliberately source-agnostic `DataConnector` contract (`evidence/connector.py`) — connector identity/version, a `SourceDescriptor` (URL/DOI/accession, license, retrieval timestamp), an immutable `RawSnapshot`, explicit `TransformationStep` provenance, and the resulting `EvidenceSet`/`ObservedDataset` — mirroring the same declarative shape `ModelCapabilityProfile` established for models. Two new immutable stores (`OTRAW-*` raw snapshots, `OTCONN-*` top-level provenance records) sit alongside the existing, unmodified `OTOBS` observed-dataset store. One reference connector proves the contract against a real source: the population mean ± SD plasma-concentration curve bundled with `ospsuite` (the same literature dataset the pinned Aciclovir model was itself calibrated against — registered as `DatasetRole.CALIBRATION`, explicitly not validation evidence, since using a model's own training data to validate it would be circular). **v0.8-B/C — evidence acquisition + independent validation** was attempted as one combined pass and is honestly blocked, not weakened to a false completion. The only genuinely independent candidate found (Laskin et al. 1982, bundled with `ospsuite` alongside Vergin 1995, and confirmed absent from the pinned model's own PKML — unlike Vergin 1995) cannot be represented as an OpenTrials `Intervention` at all: its dose is reported per body weight (mg/kg) with no recoverable subject weight, and `compound.intervention.Dose` correctly refuses a non-mass amount rather than accept an invented one. A live query against PK-DB's real API found zero curated acyclovir studies, and a broader search found no independently-deposited, open-licensed, point-level aciclovir IV dataset. See `scripts/V0.8_VALIDATION_DATASET_SEARCH.md` for the full search record. The founding spec's 0.2-D gap remains open; v0.8 is not tagged.
+---
 
-**v0.9-A — Researcher SDK + thin CLI** establishes an architectural rule, not just a milestone: the public Python SDK (`opentrials.sdk`, also importable directly as `opentrials.load`/`Project`/`run_trial`/`run_population`) is the canonical researcher-facing interface, and the CLI is a thin renderer built exclusively on top of it with no scientific logic of its own — the same client a future GUI is expected to be. `opentrials.load("project.yaml")` returns a `Project`; `project.run(...)` generates or reuses a population and routes automatically to population-only or multi-arm trial execution, returning a `Run` with `.summary()`, `.endpoints`, `.population`, `.verify()` for the common case and `.artifacts` for full descent into the underlying orchestration result and artifact stores. A new structured `events.Event` system adapts every orchestration module's existing progress callback into typed events the CLI renders live (`[✓] Executing arm high (10.9s)`, with `--verbose` surfacing each stage's own concrete facts) — no fabricated percentages, since orchestration only ever reports per-stage completion. Try it: `opentrials run examples/aciclovir_dose_comparison.yaml --r-libs-user <path> --verbose`.
+## What you can do today
 
-**v0.9-B — Reports + visualization** turns a completed run into something you can actually hand to another researcher, under one rule: reports never become a second scientific-analysis engine. Every number a report shows is read from an artifact a store's own `verify_*()` call has already confirmed, or computed by the exact same shared `analysis.descriptive.calculate_descriptive_summary` every other comparison in this project already uses — never a new statistic with different rules. `opentrials report runs/OTR-trial-...  --population-root <path> --format html` (or `run.report()` from the SDK) produces a Markdown or self-contained HTML report — zero external references, theme-aware, with hand-rolled dependency-free SVG concentration-time and endpoint-comparison figures — built purely by re-deriving every artifact ID from the run directory's own name and re-verifying the whole chain from disk, never trusting a live object or a claimed value. The registered model is resolved from the manifest's own `model_id` and cross-checked against its recorded hash before a report will attribute a run to it.
+OpenTrials currently provides working infrastructure for:
 
-**v0.9-C — Researcher onboarding + open-source readiness** (tagged `v0.9.0-alpha.1`) closes v0.9: `opentrials init` generates a working, commented `project.yaml` you can run immediately. `opentrials model inspect <pkml.file>` does conservative, real-OSP-backed discovery of a model's compounds, administration parameter paths, and candidate outputs — live-confirmed to exactly rediscover every already-hand-verified constant in the registered Aciclovir profile — and `opentrials model init <pkml.file>` turns that into a `ModelCapabilityProfile` scaffold that refuses to import until a researcher deletes an explicit review guard, so discovery can never be mistaken for verification. `opentrials models list`/`show` expose the local model registry, designed to be swappable later for a shared/networked one without a redesign. New `docs/` pages (quickstart, models, SDK usage, limitations, architecture) plus `CONTRIBUTING.md`, a code of conduct, and issue/PR templates round out what a new contributor needs without reading `HANDOFF.md`.
+| Capability | What OpenTrials does |
+| --- | --- |
+| **Virtual populations** | Generate, persist, hash, reload, and verify populations while preserving stable subject lineage. |
+| **Mechanistic execution** | Run compatible OSP simulations with model-hash checks, target resolution, assignment read-back, and execution verification. |
+| **Population PBPK** | Execute a complete population in batched OSP runs; a 10,000-person path has been live-proven. |
+| **Prospective trial arms** | Deterministically allocate participants across declared arms and execute each intervention only against its allocated subjects. |
+| **Observation schedules** | Declare solver sampling times and verify that the executed output grid matches them. |
+| **Canonical PK results** | Preserve concentration-time results and derive sampled Cmax, earliest Tmax, and linear-trapezoidal AUC0-last under explicit rules. |
+| **Cohorts & subgroups** | Define reproducible cohort membership and compare PK outcomes using immutable population-row lineage rather than name-only joins. |
+| **Extreme responders** | Select transparent rank/percentile response tails with explicit tie behavior and compare descriptive baseline characteristics. |
+| **Uncertainty workflows** | Materialize deterministic uncertainty draws, execute verified perturbations, and persist first-order sensitivity results. |
+| **Physiological-state experiments** | Apply typed, evidence-attached physiological overrides and compare the same virtual subjects across states. |
+| **Observed evidence** | Capture source identity, licensing/provenance, raw snapshots, transformations, observed datasets, and intended dataset roles. |
+| **Validation infrastructure** | Gate prediction-vs-observation comparison on declared compatibility and persist alignments, residuals, endpoints, and metrics. |
+| **Research reports** | Produce self-contained Markdown/HTML reports from already-verified artifacts without creating a second analysis engine. |
+| **Model onboarding** | Inspect OSP models, discover candidate administration/output paths, and scaffold capability profiles that still require human verification. |
 
-See `CAPABILITY_AUDIT.md` for the full v0.1–v0.5 capability audit against the founding specification and the roadmap it produced (v0.6 Disease Physiology + Scale, v0.7 General Model/Drug Architecture, v0.8 Evidence + Scientific Validation, v0.9 Researcher UX + Open-source hardening, v1.0 stable research release).
+This list describes **implemented software capability**, not scientific validation of every possible model or experiment.
 
-**Population execution and multi-arm trial execution (v0.4/v0.5) are now reachable from the CLI via `opentrials run`/`validate` on an `opentrials.project` YAML file** (see `examples/aciclovir_dose_comparison.yaml`); the original v0.1 single-individual workflow remains available unchanged via an `opentrials.trial` YAML file, auto-detected by schema. Physiology-state runs, uncertainty scenarios, cohort/extreme-responder analysis, and evidence-connector ingestion are not yet SDK/CLI-wired and remain accessible only through the Python API; see `HANDOFF.md`'s dated entries and `tests/integration/` for exact, live-verified usage examples of those.
+For the release-by-release state and the two remaining external proof gaps, see [`docs/project-status.md`](docs/project-status.md).
 
-New here? Start with [`docs/quickstart.md`](docs/quickstart.md). See also
-[`docs/models.md`](docs/models.md) (registering a model),
-[`docs/sdk.md`](docs/sdk.md) (using OpenTrials from Python),
-[`docs/architecture.md`](docs/architecture.md), and
-[`docs/limitations.md`](docs/limitations.md) (what this project honestly
-does not do yet). Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+---
 
-The founding architecture is documented in [`OpenTrials — Founding Product & Technical Specification.md`](OpenTrials%20%E2%80%94%20Founding%20Product%20%26%20Technical%20Specification.md). Ongoing project context is maintained in [`HANDOFF.md`](HANDOFF.md).
+## The trust model
 
-## Development setup
+OpenTrials is built around a simple principle:
+
+> **Do not trust a scientific claim merely because an earlier stage said it happened. Re-verify the artifact that proves it.**
+
+Important boundaries therefore carry explicit identities and verification evidence. Depending on the workflow, OpenTrials records and re-checks things such as:
+
+```text
+model file hash
+population semantic hash
+trial/configuration hash
+requested intervention
+executed parameter value
+solver read-back evidence
+raw result hash
+canonical result hash
+endpoint artifact hash
+allocation identity
+subject population-row lineage
+observation schedule
+source evidence identity
+transformation provenance
+software identity
+```
+
+Higher-level artifacts do not simply copy lower-level claims. Their verification paths reopen and verify the underlying artifacts through the corresponding stores. Reports follow the same rule: they render verified results; they are not an alternate source of scientific truth.
+
+This is why OpenTrials has many small immutable artifacts instead of one convenient mutable results object.
+
+---
+
+## Quickstart
+
+### 1. Requirements
+
+You need:
+
+- Python 3.11+;
+- [`uv`](https://docs.astral.sh/uv/) for the documented development workflow;
+- R with the Open Systems Pharmacology `ospsuite` package;
+- the .NET runtime required by `ospsuite`;
+- a compatible registered model.
+
+The OpenTrials configuration layer can resolve `Rscript`, `.NET`, and the R library path through CLI flags, environment variables, or `.opentrials.yaml`. The repository has been live-verified on Apple Silicon macOS; other runtime layouts are configurable but have not yet received the same end-to-end platform verification.
+
+See [`docs/quickstart.md`](docs/quickstart.md) for the complete runtime/configuration guide.
+
+### 2. Install for development
+
+```bash
+git clone https://github.com/eshkanala/OpenTrials.git
+cd OpenTrials
+uv sync --all-extras
+```
+
+Confirm the CLI:
+
+```bash
+uv run opentrials --version
+```
+
+### 3. Create a runnable project
+
+```bash
+uv run opentrials init
+```
+
+This creates a commented `project.yaml` with a runnable reference experiment. Validate it without invoking OSP:
+
+```bash
+uv run opentrials validate project.yaml
+```
+
+### 4. Run the experiment
+
+```bash
+uv run opentrials run project.yaml \
+  --r-libs-user /path/to/your/ospsuite/library \
+  --verbose
+```
+
+Or configure the runtime once in `.opentrials.yaml`:
+
+```yaml
+rscript_path: /path/to/Rscript
+dotnet_root: /path/to/dotnet
+r_libs_user: /path/to/R/library
+```
+
+OpenTrials reports real orchestration stages rather than inventing a percentage-complete estimate for work the solver does not expose.
+
+### 5. Generate a report
+
+After a run:
+
+```bash
+uv run opentrials report runs/<run-id> \
+  --population-root runs/populations \
+  --format html
+```
+
+The resulting report is self-contained and can include concentration-time figures, PK endpoint summaries, arm comparisons, execution verification, limitations, provenance, and reproducibility information.
+
+A live-tested two-arm example is available at [`examples/aciclovir_dose_comparison.yaml`](examples/aciclovir_dose_comparison.yaml).
+
+---
+
+## Python SDK
+
+The Python SDK is the canonical researcher-facing interface. The CLI is intentionally a thin client over the same layer so a future GUI, notebook integration, or service does not need to reimplement scientific behavior.
+
+```python
+import opentrials
+
+project = opentrials.load("project.yaml")
+run = project.run(r_libs_user="/path/to/ospsuite/library")
+
+print(run.summary())
+print(run.endpoints)
+
+run.verify()
+run.report(format="html")
+```
+
+For the SDK contract, artifact access, and advanced workflows, see [`docs/sdk.md`](docs/sdk.md).
+
+---
+
+## Model support: registration, not a giant drug database
+
+OpenTrials is intentionally **not** a database containing every drug, every parameter, and every possible biological mechanism.
+
+A mechanistic model remains the source of compound- and physiology-specific behavior. OpenTrials registers what a particular model can safely expose through a `ModelCapabilityProfile`:
+
+```text
+ModelCapabilityProfile
+├── model identity + hash
+├── compound(s)
+├── engine
+├── supported administration routes
+├── mutable intervention targets
+├── mutable physiology targets
+├── population compatibility
+├── available model outputs
+├── output → canonical measurement mappings
+├── unit expectations
+├── provenance
+└── explicit capability limitations
+```
+
+Generic orchestration asks the profile what is supported rather than encoding drug names into the execution pipeline.
+
+### Inspecting a model
+
+```bash
+uv run opentrials model inspect path/to/model.pkml
+```
+
+This performs conservative OSP-backed discovery of candidate compounds, administration parameters, and outputs.
+
+To create a profile scaffold:
+
+```bash
+uv run opentrials model init path/to/model.pkml
+```
+
+The generated scaffold deliberately contains a review guard. Automated discovery is **not** treated as scientific verification.
+
+List registered models with:
+
+```bash
+uv run opentrials models list
+uv run opentrials models show <model-id>
+```
+
+See [`docs/models.md`](docs/models.md) for the model-onboarding philosophy and workflow.
+
+---
+
+## Current reference model
+
+The live-proven reference implementation is an **aciclovir IV PBPK model** bundled with the verified OSP environment. Aciclovir is an antiviral drug; it was useful as the first engineering model because it provided a complete locally executable simulation with inspectable administration parameters, concentration outputs, population support, and renal physiology parameters.
+
+Aciclovir is **not intended to be the architecture**. The model-independent orchestration path consumes capability profiles rather than aciclovir constants.
+
+A second model proof is deliberately still open. The selected candidate is the official OSP Midazolam model, chosen because it stresses the abstraction with a different drug, clearance mechanism, protocol set, and route/formulation behavior. Its upstream snapshot currently requires conversion on a supported Windows/Linux OSP environment before OpenTrials can complete that proof. Details are maintained in [`docs/project-status.md`](docs/project-status.md).
+
+---
+
+## Evidence and scientific validation
+
+OpenTrials distinguishes several questions that are easy to collapse into one:
+
+1. **Did the requested experiment execute reproducibly?**
+2. **Did the solver execute what OpenTrials claims it executed?**
+3. **Is the observed dataset scientifically compatible with the simulated experiment?**
+4. **Was that evidence used for calibration, held-out testing, or external validation?**
+5. **Do predictions actually agree with independent human observations?**
+
+The software infrastructure for observed evidence, compatibility gating, exact-time alignment, residuals, endpoint comparison, and immutable validation artifacts exists.
+
+What does **not** exist yet is a qualifying, rights-cleared, genuinely independent human dataset that permits a scientific validation claim for the current reference model. The bundled literature observations used to build/calibrate the model are explicitly treated as calibration evidence rather than recycled as "validation."
+
+That distinction is intentional. OpenTrials would rather report **validation evidence unavailable** than turn convenient data into a misleading validation claim.
+
+See [`docs/limitations.md`](docs/limitations.md) and [`scripts/V0.8_VALIDATION_DATASET_SEARCH.md`](scripts/V0.8_VALIDATION_DATASET_SEARCH.md).
+
+---
+
+## Artifact architecture
+
+A run produces more than a table of numbers. OpenTrials persists an evidence chain.
+
+Representative artifact families include:
+
+```text
+population generation
+    ↓
+OTPGEN   generated population
+OTPHYS   derived physiological-state population
+
+trial execution
+    ↓
+OTALLOC  deterministic arm allocation
+OTRES    canonical concentration-time result
+OTPK     PK endpoints
+OTACMP   cross-arm descriptive comparison
+OTTRIAL  top-level prospective-trial provenance
+
+population analysis
+    ↓
+OTCOH / OTMEM    cohort definitions + membership
+OTCPK            cohort PK comparison
+OTXMEM / OTXCMP  extreme-response membership + comparison
+
+uncertainty
+    ↓
+OTUSC    uncertainty scenario
+OTUDR    immutable materialized draws
+OTUEX    verified draw executions
+OTSENS   persisted sensitivity analysis
+
+evidence / validation
+    ↓
+OTRAW    raw source snapshot
+OTOBS    canonical observed dataset
+OTCONN   connector provenance
+OTVAL    prediction-vs-observation validation result
+```
+
+The exact schemas and verification contracts live in code and in [`docs/architecture.md`](docs/architecture.md). The diagram above is an orientation aid, not a replacement for those contracts.
+
+---
+
+## Reproducibility by design
+
+OpenTrials uses several complementary mechanisms rather than relying on a single random seed:
+
+- deterministic population and allocation seeds where applicable;
+- immutable content-addressed/identity-bearing artifacts;
+- source and semantic SHA-256 hashes;
+- model hash pinning;
+- explicit units;
+- stable subject lineage back to immutable population rows;
+- solver parameter read-back before results are accepted;
+- declared observation-grid verification;
+- source/evidence provenance;
+- explicit transformation records;
+- strict schema-version matching;
+- independently re-verifiable top-level manifests.
+
+A reproducible workflow therefore means more than "the code ran twice." It means OpenTrials can establish what inputs, model, subjects, intervention, outputs, transformations, and software identities produced a result.
+
+---
+
+## Performance
+
+OpenTrials is not limited to toy populations. The optimized OSP CSV transport path has been live-proven on a **10,000-person population**, including result persistence, in approximately **421 seconds** on the development machine used for that benchmark.
+
+The optimization was based on profiling rather than assumptions: OSP's JSON result serialization was the dominant transport cost, while CSV export substantially reduced it. At 10,000 subjects the dominant remaining cost moved to Python-side row processing, which scales approximately linearly and remains a documented optimization opportunity.
+
+The CSV and JSON result transports are not claimed to be byte-identical: OSP's CSV export uses limited textual precision. Endpoint agreement has been empirically bounded within that representation's precision. See [`docs/limitations.md`](docs/limitations.md) for the maintained note.
+
+---
+
+## What OpenTrials does **not** claim
+
+OpenTrials currently does **not** claim:
+
+- clinical validity or patient-specific predictive accuracy;
+- regulatory qualification;
+- independent human validation of the reference model;
+- arbitrary-model compatibility without model registration and verification;
+- a second live-proven drug/model yet;
+- general disease simulation from a single physiological override;
+- support for authoring arbitrary repeated/multi-dose OSP protocols from the current headless R toolchain;
+- that automatically discovered model parameters are automatically safe to expose;
+- that all advanced capabilities are already available through the top-level CLI/`Project` API;
+- schema migration across artifact versions.
+
+The maintained and more detailed limitations page is [`docs/limitations.md`](docs/limitations.md).
+
+---
+
+## Documentation map
+
+The README is intentionally the front door, not the entire project notebook.
+
+| Document | Use it for |
+| --- | --- |
+| [`docs/quickstart.md`](docs/quickstart.md) | First installation, runtime configuration, first run, first report |
+| [`docs/sdk.md`](docs/sdk.md) | Researcher-facing Python API and artifact access |
+| [`docs/models.md`](docs/models.md) | Inspecting, registering, and verifying new mechanistic models |
+| [`docs/architecture.md`](docs/architecture.md) | Layering, trust boundaries, artifacts, schema/versioning policy |
+| [`docs/limitations.md`](docs/limitations.md) | Maintained scientific and engineering limitations |
+| [`docs/project-status.md`](docs/project-status.md) | Release progression and current external blockers |
+| [`CAPABILITY_AUDIT.md`](CAPABILITY_AUDIT.md) | Capability audit against the founding vision |
+| [`V1_READINESS_AUDIT.md`](V1_READINESS_AUDIT.md) | Adoption/release-readiness audit |
+| [`OpenTrials — Founding Product & Technical Specification.md`](OpenTrials%20%E2%80%94%20Founding%20Product%20%26%20Technical%20Specification.md) | Original product and technical vision |
+| [`HANDOFF.md`](HANDOFF.md) | Detailed chronological engineering record and empirical findings |
+
+---
+
+## Development
+
+Install all development dependencies:
 
 ```bash
 uv sync --all-extras
+```
+
+Run the offline test suite:
+
+```bash
 uv run pytest
 ```
 
-### Supported IV engineering run
-
-The local OSP path requires the official framework R installation, `ospsuite`, .NET, and the R package library described in [`HANDOFF.md`](HANDOFF.md). On the verified macOS environment:
+Static checks:
 
 ```bash
-R_LIBS_USER=/Users/eshkanala/Library/R/arm64/4.6/library \
-uv run opentrials run examples/aciclovir_iv/trial.yaml --output-root runs
+uv run ruff check src tests scripts
+uv run mypy src
 ```
 
-This command supports only the explicitly labeled IV engineering example. The original oral aciclovir example remains blocked pending a compatible, rights-cleared oral model.
+The OSP integration suite is intentionally opt-in because it requires a functioning local R/`ospsuite`/.NET environment. See the integration tests and contributor guide for the current invocation and runtime expectations.
 
-## Scope guardrails
+For contribution workflow, architecture boundaries, and expectations around scientific claims, read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
 
-- Every important scientific quantity carries units and provenance-capable metadata.
-- Simulation is not treated as truth; validation against observation is central.
-- The core package remains independent of OSP, R, databases, web servers, and GPU tooling.
-- OSP and other external solvers are optional adapters; the current OSP workflow is deliberately local and constrained.
-- No clinical-use, patient-specific, diagnostic, or safety claims are supported.
+---
+
+## Design principles
+
+OpenTrials development follows a few rules that matter more than any one feature:
+
+1. **Simulation is not truth.** Execution credibility and scientific validity are separate milestones.
+2. **No silent scientific fallbacks.** Unsupported routes, parameters, units, evidence, or model capabilities should fail explicitly.
+3. **Preserve raw evidence.** Normalization and analysis create new artifacts; they do not erase the source representation.
+4. **Verify at the solver boundary.** A requested parameter value is not accepted as executed merely because OpenTrials sent it.
+5. **Preserve subject identity.** Population comparisons use immutable row lineage, not convenient string joins.
+6. **Keep analysis descriptive unless the method explicitly supports more.** A difference is not automatically causal or inferential.
+7. **Make limitations machine-adjacent.** Important caveats belong in capability profiles, evidence roles, coverage reports, and artifacts—not only prose.
+8. **Keep the core solver-independent.** Engine-specific paths belong in adapters; generic orchestration consumes declared capabilities.
+9. **Prefer an honest blocker to a fabricated capability.** Several roadmap items are intentionally open because the required model, evidence, rights, or upstream API does not yet exist.
+
+---
+
+## Contributing
+
+OpenTrials is Apache-2.0 licensed and welcomes research, engineering, documentation, model-onboarding, reproducibility, and validation contributions.
+
+Particularly valuable contributions include:
+
+- additional rights-cleared mechanistic model registrations;
+- reproducible model-conversion workflows;
+- rights-cleared independent PK datasets and evidence connectors;
+- cross-platform OSP runtime verification;
+- SDK/CLI exposure for advanced existing capabilities;
+- artifact migration tooling;
+- performance work backed by profiling;
+- documentation and reproducibility improvements.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+---
+
+## License
+
+OpenTrials is licensed under the [Apache License 2.0](LICENSE).
+
+Third-party models, datasets, and solver components may have their own licenses and usage conditions. A source being publicly downloadable does not automatically make its model or numeric data redistributable; OpenTrials treats those rights as part of provenance rather than assuming them.
+
+---
+
+## Project maturity
+
+`v1.0.0-rc.1` is a **research software release candidate**, not a declaration that every scientific objective in the founding specification has been achieved.
+
+The internal release-readiness blockers identified by the v1 audit—project licensing, public runtime configurability, and stale capability documentation—have been addressed. Two high-value external proofs remain open: a second genuinely different live model and a qualifying independent human validation dataset.
+
+That is the current boundary: OpenTrials has a substantial, live-tested virtual-trial engineering stack and a deliberately conservative scientific claim surface. Final `v1.0.0` should strengthen that evidence, not merely add more features.
