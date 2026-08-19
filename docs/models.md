@@ -30,6 +30,24 @@ function).
 resolves one automatically when exactly one model is registered, and
 that stopped being true once the second model was registered.
 
+## If your OSP model is a snapshot on macOS
+
+Many official OSP compound-model repositories publish PK-Sim snapshot
+`.json` files rather than ready-to-load `.pkml` simulations. The
+snapshot-conversion backend in the currently verified `ospsuite` stack
+is not usable on macOS: the supported snapshot-run path refuses Darwin,
+and the lower-level project-loading path was empirically observed to
+crash against the real Midazolam snapshot.
+
+OpenTrials' Midazolam model was therefore converted once on an ephemeral
+Ubuntu GitHub Actions runner, then brought back into the normal macOS
+inspection/registration workflow as a hash-verified derived `.pkml`
+artifact.
+
+The complete, reproducible workaround — including environment caveats,
+provenance requirements, and what to do after conversion — is documented
+in [`macos-osp-snapshot-conversion.md`](macos-osp-snapshot-conversion.md).
+
 ## Bringing in a new model: discover, then scaffold, then verify
 
 This is a deliberately three-step, human-in-the-loop process. Nothing
