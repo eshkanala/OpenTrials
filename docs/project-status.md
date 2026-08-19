@@ -6,7 +6,7 @@ This document tracks the current release state of OpenTrials without turning the
 
 **Current release candidate:** `v1.0.0-rc.2`
 
-OpenTrials is feature-complete enough for a release-candidate cycle. The second-model generalization proof (v0.7-C) is now complete; one external scientific proof (independent human validation evidence) remains intentionally open before a final `v1.0.0` release is considered.
+OpenTrials is feature-complete enough for a release-candidate cycle. The second-model generalization proof (v0.7-C) is complete. The remaining scientific proof — independent human validation evidence — was actively re-searched using Midazolam's substantially larger published PK literature and remains open: no qualifying dataset was found. This is documented, not silently carried forward; see below.
 
 ## Release progression
 
@@ -22,7 +22,7 @@ OpenTrials is feature-complete enough for a release-candidate cycle. The second-
 | v0.8 | Evidence connector framework and immutable source provenance | Connector framework complete; independent validation evidence externally blocked |
 | v0.9 | Public SDK, thin CLI, verified reports, model onboarding, OSS readiness | Complete |
 | v1.0.0-rc.1 | Release-readiness fixes: license, runtime configuration, versioning, audits | Tagged |
-| v1.0.0-rc.2 | Second-model proof: Midazolam oral model registered and live-proven through generic execution | Tagged |
+| v1.0.0-rc.2 | Second live model (Midazolam, oral) registered and live-proven; generic-pipeline bug fixed | Tagged |
 
 ## What is live-proven today
 
@@ -64,9 +64,9 @@ OpenTrials has an observed-evidence model, strict trial/study compatibility chec
 
 For aciclovir: the bundled Vergin observations are correctly treated as calibration evidence, not validation evidence. The independently sourced Laskin candidate cannot be represented honestly from the available record because dosing is weight-normalized without recoverable subject weight, and no substitute open-licensed point-level aciclovir IV dataset was found in the documented search.
 
-Midazolam has a substantially larger published PK literature than aciclovir, which may widen this search meaningfully — that search has not yet been done and is the next planned step, not a claim made here.
+For Midazolam: the hoped-for wider literature was real (PK-DB alone returns 138 midazolam intervention records across roughly 50 studies, versus zero for aciclovir), but it did not close the gap. The official OSP Midazolam model's own published evaluation report explicitly lists the exact two studies used to verify the registered 10&nbsp;mg oral tablet protocol (Heizmann et al. 1983; Smith et al. 1981) — both directly circular, the same disqualifying pattern as aciclovir's Vergin 1995. The closest independent close-dose candidate found (Link et al. 2008, 7.5&nbsp;mg tablet) was checked in full and disqualified twice over: it is itself one of the model's own calibration studies for that dose, and it reports only aggregate summary statistics, not point-level concentration-time data. No qualifying alternative was found on Zenodo, Dryad, Figshare, or in recent PBPK-methods literature.
 
-The full aciclovir search record is maintained internally.
+Both search records are maintained internally.
 
 ## Important current limitations
 

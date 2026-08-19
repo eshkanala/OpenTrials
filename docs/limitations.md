@@ -10,24 +10,32 @@ plainly rather than left to be discovered by using it.
 
 ## No independent scientific validation exists yet
 
-Every PK result this project produces comes from one pinned model
-(the Aciclovir IV PBPK model bundled with `ospsuite`), exercised through
-real, verified OSP execution — but **no claim has been made, or can yet
-be made, that this model's predictions match independent human data.**
-The founding specification's 0.2-D requirement (an independent,
-rights-cleared human validation dataset) remains open:
+Every PK result this project produces comes from one of two pinned
+models (the Aciclovir IV or Midazolam oral tablet PBPK models),
+exercised through real, verified OSP execution — but **no claim has been
+made, or can yet be made, that either model's predictions match
+independent human data.** The founding specification's 0.2-D requirement
+(an independent, rights-cleared human validation dataset) remains open
+for both:
 
-- The one genuinely independent candidate found in this project's search
-  (a second bundled observed-PK dataset from a different 1982 study)
-  cannot be represented in OpenTrials at all — its dose is reported per
-  body weight with no recoverable subject weight, and the domain model
-  correctly refuses to accept an invented one.
-- A live query against PK-DB's real API and a broader search of open data
-  repositories found no independently-deposited, open-licensed, point-level
-  aciclovir IV dataset to validate against instead.
+- For aciclovir: the one genuinely independent candidate found (a second
+  bundled observed-PK dataset from a different 1982 study) cannot be
+  represented in OpenTrials at all — its dose is reported per body
+  weight with no recoverable subject weight, and the domain model
+  correctly refuses to accept an invented one. A live query against
+  PK-DB's real API and a broader search of open data repositories found
+  no substitute.
+- For Midazolam: actively re-searched using its substantially larger
+  published PK literature (PK-DB alone returns 138 midazolam
+  intervention records, versus zero for aciclovir), but the two
+  published studies at the exact registered 10&nbsp;mg oral tablet dose
+  are the same two studies the official model's own verification already
+  used — directly circular. The closest independent candidate found
+  reports only aggregate summary statistics, not point-level data, and
+  is itself one of the model's calibration studies at a different dose.
 
-See [`docs/project-status.md`](project-status.md) for a summary of that
-search.
+See [`docs/project-status.md`](project-status.md) for a summary of both
+searches.
 
 ## Only two models are registered, both from one engine
 
