@@ -44,7 +44,7 @@ DEFAULT_REFERENCE_POPULATION = OspHumanPopulation.EUROPEAN_ICRP_2002
 def generate_population(
     spec: PopulationSpec,
     *,
-    population_root: Path,
+    population_root: str | Path,
     r_libs_user: str,
     rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
     dotnet_root: str = DEFAULT_DOTNET_ROOT,
@@ -59,6 +59,7 @@ def generate_population(
     into ``sdk.trial.run_trial``/``sdk.population.run_population`` as
     ``population_generation_id``/``population_root``.
     """
+    population_root = Path(population_root)
     generation_id = f"OTPGEN-{spec.id}"
     _emit(events, "translating_population_specification", EventStatus.STARTED)
     translation = OspPopulationTranslator(
@@ -121,9 +122,9 @@ def run_population(
     *,
     model_capability_profile: ModelCapabilityProfile,
     population_generation_id: str,
-    population_root: Path,
+    population_root: str | Path,
     dose_mg: float,
-    output_root: Path,
+    output_root: str | Path,
     r_libs_user: str,
     rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
     dotnet_root: str = DEFAULT_DOTNET_ROOT,
@@ -139,6 +140,8 @@ def run_population(
     result into ``sdk.run.PopulationRun`` and its bare stage-name progress
     callback into structured ``Event`` objects.
     """
+    population_root = Path(population_root)
+    output_root = Path(output_root)
     execution = run_population_execution(
         model_capability_profile=model_capability_profile,
         population_generation_id=population_generation_id,

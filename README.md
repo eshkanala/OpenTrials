@@ -6,7 +6,7 @@ OpenTrials is an open-source Python platform for defining, executing, verifying,
 
 > **Research and educational use only.** OpenTrials is not a clinical decision-support system, medical device, diagnostic tool, or source of patient-specific treatment advice. Simulation results do not establish clinical validity.
 
-**Release:** `v1.0.0-rc.1` · **License:** Apache-2.0 · **Integration:** Open Systems Pharmacology (`ospsuite`)
+**Release:** `v1.0.0-rc.2` · **License:** Apache-2.0 · **Integration:** Open Systems Pharmacology (`ospsuite`)
 
 ## Overview
 
@@ -128,6 +128,7 @@ The Python SDK is the primary programmatic interface. The CLI is implemented as 
 
 ```python
 import opentrials
+from opentrials.reporting import render_html
 
 project = opentrials.load("project.yaml")
 run = project.run(r_libs_user="/path/to/ospsuite/library")
@@ -136,7 +137,8 @@ print(run.summary())
 print(run.endpoints)
 
 run.verify()
-run.report(format="html")
+report_data = run.report()
+render_html(report_data)
 ```
 
 See [`docs/sdk.md`](docs/sdk.md) for the complete SDK guide.
@@ -220,7 +222,7 @@ See [`docs/architecture.md`](docs/architecture.md) for architecture and artifact
 
 OpenTrials includes infrastructure for observed evidence, trial-study compatibility checks, prediction-observation alignment, residual analysis, endpoint comparison, and immutable validation artifacts.
 
-The current reference model does **not** yet have a qualifying, rights-cleared independent human dataset that supports an external validation claim. Calibration data bundled with the model are tracked as calibration evidence rather than presented as independent validation.
+Neither registered model yet has a qualifying, rights-cleared independent human dataset that supports an external validation claim. Calibration data bundled with each model are tracked as calibration evidence rather than presented as independent validation. This was actively re-searched for Midazolam using its substantially larger published PK literature and remains open — documented as a scientific limitation, not a release blocker.
 
 See [`docs/limitations.md`](docs/limitations.md) for the maintained scientific and engineering limitations and [`docs/project-status.md`](docs/project-status.md) for current release status.
 
@@ -235,8 +237,8 @@ The CSV transport substantially reduces OSP result-serialization overhead compar
 Current limitations include:
 
 - no clinical or patient-specific use;
-- no independent human validation claim for the reference model;
-- one live-proven registered mechanistic model;
+- no independent human validation claim for either registered model;
+- two live-proven registered mechanistic models, both from the same simulation engine (OSP);
 - no arbitrary repeated/multi-dose protocol authoring through the current headless OSP R interface;
 - selected advanced workflows remain Python-API-only rather than exposed through the top-level `Project`/CLI interface;
 - persisted artifact schemas currently require exact version matches and do not yet have migration tooling.

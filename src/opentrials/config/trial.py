@@ -19,8 +19,9 @@ class TrialConfigurationError(ValueError):
     """Raised when a trial configuration cannot be safely interpreted."""
 
 
-def load_trial(path: Path) -> Trial:
+def load_trial(path: str | Path) -> Trial:
     """Load and validate a versioned trial YAML document without executing it."""
+    path = Path(path)
     try:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
     except OSError as error:

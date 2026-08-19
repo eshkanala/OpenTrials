@@ -18,8 +18,8 @@ def run_trial(
     *,
     model_capability_profile: ModelCapabilityProfile,
     population_generation_id: str,
-    population_root: Path,
-    output_root: Path,
+    population_root: str | Path,
+    output_root: str | Path,
     r_libs_user: str,
     rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
     dotnet_root: str = DEFAULT_DOTNET_ROOT,
@@ -35,6 +35,8 @@ def run_trial(
     result into ``sdk.run.TrialRun`` and its bare stage-name progress
     callback into structured ``Event`` objects.
     """
+    population_root = Path(population_root)
+    output_root = Path(output_root)
     execution = run_trial_execution(
         trial,
         model_capability_profile=model_capability_profile,

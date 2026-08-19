@@ -55,8 +55,9 @@ class ProjectConfig(BaseModel):
     )
 
 
-def load_project(path: Path) -> ProjectConfig:
+def load_project(path: str | Path) -> ProjectConfig:
     """Load and validate a versioned project YAML document without executing it."""
+    path = Path(path)
     try:
         raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
     except OSError as error:

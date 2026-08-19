@@ -210,6 +210,28 @@ def test_project_run_routes_a_single_arm_trial_to_population_execution(
     assert run.population.participant_count == POPULATION_SIZE
 
 
+def test_project_run_accepts_a_plain_string_output_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    population_root = build_population(tmp_path)
+    monkeypatch.setattr(
+        "opentrials.orchestration.population_execution._execute_osp_population",
+        fake_population_execution,
+    )
+    project = Project(
+        ProjectConfig(
+            trial=trial_with(arm("only", 250.0, 1.0), randomization=RandomizationType.NONE),
+            model_id="osp.aciclovir.vergin-1995-iv",
+            population_generation_id=GENERATION_ID,
+            population_root=population_root,
+        )
+    )
+
+    run = project.run(output_root=str(tmp_path / "runs"), r_libs_user="/fake/r/libs")
+
+    assert isinstance(run, PopulationRun)
+
+
 def test_project_run_routes_a_multi_arm_trial_to_trial_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -48,8 +48,8 @@ _STANDARD_LIMITATIONS = (
 
 
 def build_trial_report(
-    run_directory: Path,
-    population_root: Path,
+    run_directory: str | Path,
+    population_root: str | Path,
     *,
     registry: ModelCapabilityRegistry | None = None,
 ) -> ReportData:
@@ -234,8 +234,8 @@ def build_trial_report(
 
 
 def build_population_report(
-    run_directory: Path,
-    population_root: Path,
+    run_directory: str | Path,
+    population_root: str | Path,
     *,
     registry: ModelCapabilityRegistry | None = None,
 ) -> ReportData:

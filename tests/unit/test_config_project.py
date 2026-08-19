@@ -95,6 +95,15 @@ def test_load_project_rejects_invalid_trial_payload(tmp_path: Path) -> None:
         load_project(path)
 
 
+def test_load_project_accepts_a_plain_string_path(tmp_path: Path) -> None:
+    path = tmp_path / "project.yaml"
+    path.write_text(VALID_PROJECT_YAML, encoding="utf-8")
+
+    config = load_project(str(path))
+
+    assert config.trial.trial_id == "DEMO-TRIAL"
+
+
 def test_load_project_allows_omitted_model_id(tmp_path: Path) -> None:
     path = tmp_path / "project.yaml"
     without_model_id = VALID_PROJECT_YAML.replace(

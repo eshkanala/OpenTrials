@@ -36,7 +36,9 @@ class Project:
         self._registry = registry if registry is not None else default_model_registry()
 
     @classmethod
-    def load(cls, path: Path, *, registry: ModelCapabilityRegistry | None = None) -> Project:
+    def load(
+        cls, path: str | Path, *, registry: ModelCapabilityRegistry | None = None
+    ) -> Project:
         """Load and validate a project YAML document without executing it."""
         return cls(load_project(path), registry=registry)
 
@@ -60,13 +62,18 @@ class Project:
     def run(
         self,
         *,
-        output_root: Path,
+        output_root: str | Path = Path("runs"),
         r_libs_user: str,
         rscript_path: Path = DEFAULT_FRAMEWORK_RSCRIPT,
         dotnet_root: str = DEFAULT_DOTNET_ROOT,
         events: EventSink | None = None,
     ) -> PopulationRun | TrialRun:
         """Execute this project's trial and return its result.
+
+        ``output_root`` defaults to ``runs/`` in the current working
+        directory, matching the CLI's own ``--output-root`` default -- the
+        SDK is the canonical interface the CLI is built on, so the two
+        should never diverge on a default.
 
         Routes to ``sdk.trial.run_trial`` for two or more declared arms, or
         ``sdk.population.run_population`` for exactly one -- the two
@@ -80,6 +87,7 @@ class Project:
         compiled-in macOS layout; pass ``config.runtime.resolve_osp_runtime()``
         (or your own values) to run against a different machine.
         """
+        output_root = Path(output_root)
         model = self.model()
         trial = self.config.trial
 
@@ -131,7 +139,7 @@ class Project:
         )
 
 
-def load(path: Path, *, registry: ModelCapabilityRegistry | None = None) -> Project:
+def load(path: str | Path, *, registry: ModelCapabilityRegistry | None = None) -> Project:
     """Load a project YAML document -- the one function most researchers need."""
     return Project.load(path, registry=registry)
 

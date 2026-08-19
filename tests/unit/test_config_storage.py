@@ -14,6 +14,12 @@ def test_loads_versioned_aciclovir_trial_configuration() -> None:
     assert trial.arms[0].intervention.compound.identity.compound_id == "aciclovir"
 
 
+def test_loads_a_trial_configuration_from_a_plain_string_path() -> None:
+    trial = load_trial("examples/aciclovir/trial.yaml")
+
+    assert trial.trial_id == "ACICLOVIR-DEMO"
+
+
 def test_loads_iv_engineering_configuration_with_an_infusion_duration() -> None:
     trial = load_trial(Path("examples/aciclovir_iv/trial.yaml"))
     dose = trial.arms[0].intervention.regimen.doses[0]
