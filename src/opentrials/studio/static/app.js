@@ -1335,6 +1335,223 @@
       });
   }
 
+  // ================= Curation pane =================
+
+  function renderCuration() {
+    state.activePane = "curation";
+    appMain.innerHTML =
+      '<div class="app-topbar"><div><h3>Curation</h3><div class="sub">Connector output &rarr; reviewed, evidence-classed Registry record</div></div></div>' +
+      '<div class="panel"><div class="phead">Run a connector for curation</div><div class="pbody" id="curationConnectors"><span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span></div></div>' +
+      '<div class="panel"><div class="phead">Candidates</div><div class="pbody" id="curationCandidates"></div></div>' +
+      '<div class="panel"><div class="phead">Ineligible (connector declined)</div><div class="pbody" id="curationIneligible"></div></div>' +
+      '<div id="curationReview" style="margin-top:10px;"></div>';
+
+    fetch("/api/evidence").then(function (r) { return r.json(); }).then(function (connectors) {
+      var box = document.getElementById("curationConnectors");
+      box.innerHTML = connectors.map(function (c) {
+        return (
+          '<div class="param-row"><span class="mono">' + escapeHtml(c.connector_id) + "</span>" +
+          '<span class="btn raised run-curation-connector" data-connector="' + escapeAttr(c.connector_id) + '" style="cursor:pointer;margin-left:auto;">Run</span></div>'
+        );
+      }).join("");
+      box.querySelectorAll(".run-curation-connector").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          btn.textContent = "Running…";
+          fetch("/api/curation/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ connector_id: btn.dataset.connector }),
+          })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "run failed"); });
+              return r.json();
+            })
+            .then(function (result) {
+              btn.textContent = "Run";
+              loadCurationLists();
+              if (!result.eligible) showInlineError("Connector declined this candidate: " + result.reason);
+            })
+            .catch(function (err) {
+              btn.textContent = "Failed";
+              showInlineError(err.message);
+            });
+        });
+      });
+    });
+
+    loadCurationLists();
+  }
+
+  function loadCurationLists() {
+    fetch("/api/curation/candidates").then(function (r) { return r.json(); }).then(function (candidates) {
+      var box = document.getElementById("curationCandidates");
+      box.innerHTML = candidates.length
+        ? candidates.map(function (c) {
+            var statusClass = c.outcome === "ACCEPTED" ? "verified" : c.outcome === "REJECTED" ? "absent" : "pending";
+            return (
+              '<div class="param-row" style="cursor:pointer;" data-candidate="' + escapeAttr(c.candidate_id) + '">' +
+              '<span class="sq ' + statusClass + '"></span>' +
+              '<span class="mono">' + escapeHtml(c.dataset.dataset_id) + "</span>" +
+              '<span style="margin-left:auto;">' + escapeHtml(c.outcome) + "</span></div>"
+            );
+          }).join("")
+        : '<div class="empty-state">No candidates yet.</div>';
+      box.querySelectorAll("[data-candidate]").forEach(function (row) {
+        row.addEventListener("click", function () { renderCurationReview(row.dataset.candidate); });
+      });
+    });
+
+    fetch("/api/curation/ineligible").then(function (r) { return r.json(); }).then(function (records) {
+      var box = document.getElementById("curationIneligible");
+      box.innerHTML = records.length
+        ? records.map(function (r) {
+            return (
+              '<div class="param-row"><span class="mono">' + escapeHtml(r.connector_id) + "</span></div>" +
+              '<div class="ec-body" style="padding-left:0;margin-bottom:8px;">' + escapeHtml(r.reason) + "</div>"
+            );
+          }).join("")
+        : '<div class="empty-state">None.</div>';
+    });
+  }
+
+  function renderCurationReview(candidateId) {
+    var container = document.getElementById("curationReview");
+    container.innerHTML =
+      '<div class="panel"><div class="phead">Review candidate</div><div class="pbody" id="curationReviewBody-' + candidateId + '"></div></div>' +
+      '<div class="panel"><div class="phead">Validation checklist</div><div class="pbody" id="curationChecklist-' + candidateId + '"></div></div>';
+    refreshCurationCandidate(candidateId);
+  }
+
+  function refreshCurationCandidate(candidateId) {
+    fetch("/api/curation/candidate/" + candidateId)
+      .then(function (r) { return r.json(); })
+      .then(function (candidate) {
+        renderCurationReviewBody(candidate);
+        return fetch("/api/curation/candidate/" + candidateId + "/checklist");
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (checklist) { renderCurationChecklist(candidateId, checklist); });
+  }
+
+  function renderCurationChecklist(candidateId, checklist) {
+    var body = document.getElementById("curationChecklist-" + candidateId);
+    if (!body) return;
+    var rungs = checklist.checks.map(function (c) {
+      return (
+        '<div class="rung"><span class="sq ' + c.status + '"></span>' +
+        '<span class="txt"><strong>' + escapeHtml(c.label) + "</strong><span>" + escapeHtml(c.detail) + "</span></span></div>"
+      );
+    }).join("");
+    body.innerHTML =
+      '<div class="status-ladder">' + rungs + "</div>" +
+      '<div style="margin-top:10px;display:flex;gap:8px;">' +
+      '<span class="btn btn-primary raised" id="acceptBtn-' + candidateId + '" style="cursor:pointer;" ' + (checklist.ok ? "" : 'aria-disabled="true"') + ">Accept &amp; register</span>" +
+      '<span class="btn raised" id="rejectBtn-' + candidateId + '" style="cursor:pointer;">Reject</span>' +
+      "</div>" +
+      '<div id="curationAcceptResult-' + candidateId + '" style="margin-top:8px;"></div>';
+
+    var acceptBtn = document.getElementById("acceptBtn-" + candidateId);
+    if (checklist.ok) {
+      acceptBtn.addEventListener("click", function () {
+        var out = document.getElementById("curationAcceptResult-" + candidateId);
+        out.innerHTML = "Accepting…";
+        fetch("/api/curation/candidate/" + candidateId + "/accept", { method: "POST" })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "accept failed"); });
+            return r.json();
+          })
+          .then(function (result) {
+            out.innerHTML = '<div class="hash-line"><span class="k">Registered</span><span class="v mono">' + escapeHtml(result.record_id) + "</span></div>";
+            loadCurationLists();
+          })
+          .catch(function (err) {
+            out.innerHTML = '<div class="error-banner"><strong>Accept failed.</strong><br />' + escapeHtml(err.message) + "</div>";
+          });
+      });
+    } else {
+      acceptBtn.style.opacity = "0.5";
+      acceptBtn.style.cursor = "default";
+    }
+
+    document.getElementById("rejectBtn-" + candidateId).addEventListener("click", function () {
+      var reason = window.prompt("Reason for rejecting this candidate:");
+      if (!reason) return;
+      fetch("/api/curation/candidate/" + candidateId + "/reject", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function () { loadCurationLists(); refreshCurationCandidate(candidateId); });
+    });
+  }
+
+  function renderCurationReviewBody(candidate) {
+    var candidateId = candidate.candidate_id;
+    var body = document.getElementById("curationReviewBody-" + candidateId);
+    if (!body) return;
+
+    var compoundId = candidate.dataset.study.intervention.compound.identity.compound_id;
+    var route = candidate.dataset.study.intervention.regimen.doses[0].route;
+
+    body.innerHTML =
+      '<div class="propgrid">' +
+      '<div class="prow"><div class="pk">Dataset</div><div class="pv mono">' + escapeHtml(candidate.dataset.dataset_id) + "</div></div>" +
+      '<div class="prow"><div class="pk">Compound</div><div class="pv">' + escapeHtml(compoundId) + "</div></div>" +
+      '<div class="prow"><div class="pk">Route</div><div class="pv">' + escapeHtml(route) + "</div></div>" +
+      '<div class="prow"><div class="pk">License (declared)</div><div class="pv">' + escapeHtml(candidate.dataset.license) + "</div></div>" +
+      "</div>" +
+      '<div class="field" style="margin-top:10px;"><span class="flabel">Logical ID</span><input class="finput" id="curLogicalId-' + candidateId + '" type="text" value="' + escapeAttr(candidate.proposed_logical_id || "") + '" /></div>' +
+      '<div class="field"><span class="flabel">Evidence class</span><select class="fselect" id="curEvidenceClass-' + candidateId + '">' +
+      ["MEASURED", "CURATED", "DERIVED", "FITTED", "MODEL_INHERITED", "SIMULATED", "ASSUMED"].map(function (e) {
+        return '<option value="' + e + '"' + (e === "MEASURED" ? " selected" : "") + ">" + e + "</option>";
+      }).join("") + "</select></div>" +
+      '<span class="btn raised" id="curSaveIdentity-' + candidateId + '" style="cursor:pointer;">Save identity</span>' +
+      '<div class="field" style="margin-top:10px;"><span class="flabel">Applicable model IDs (comma-separated)</span><input class="finput" id="curModelIds-' + candidateId + '" type="text" /></div>' +
+      '<span class="btn raised" id="curSaveCompatibility-' + candidateId + '" style="cursor:pointer;">Save compatibility</span>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;">' +
+      '<span class="btn raised" id="curLicenseReviewed-' + candidateId + '" style="cursor:pointer;">' + (candidate.license_reviewed ? "License reviewed &#10003;" : "Mark license reviewed") + "</span>" +
+      '<span class="btn raised" id="curAckIdentity-' + candidateId + '" style="cursor:pointer;">' + (candidate.identity_reviewed ? "Identity reviewed &#10003;" : "Acknowledge identity") + "</span>" +
+      "</div>";
+
+    document.getElementById("curSaveIdentity-" + candidateId).addEventListener("click", function () {
+      var logicalId = document.getElementById("curLogicalId-" + candidateId).value.trim();
+      var evidenceClass = document.getElementById("curEvidenceClass-" + candidateId).value;
+      if (!logicalId) return;
+      fetch("/api/curation/candidate/" + candidateId + "/identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logical_id: logicalId, evidence_class: evidenceClass }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshCurationCandidate(candidateId); });
+    });
+
+    document.getElementById("curSaveCompatibility-" + candidateId).addEventListener("click", function () {
+      var raw = document.getElementById("curModelIds-" + candidateId).value.trim();
+      var modelIds = raw ? raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean) : [];
+      fetch("/api/curation/candidate/" + candidateId + "/compatibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_ids: modelIds, route: route }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshCurationCandidate(candidateId); });
+    });
+
+    document.getElementById("curLicenseReviewed-" + candidateId).addEventListener("click", function () {
+      fetch("/api/curation/candidate/" + candidateId + "/license-reviewed", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshCurationCandidate(candidateId); });
+    });
+
+    document.getElementById("curAckIdentity-" + candidateId).addEventListener("click", function () {
+      fetch("/api/curation/candidate/" + candidateId + "/acknowledge-identity", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshCurationCandidate(candidateId); });
+    });
+  }
+
   // ================= Registry pane =================
 
   var REGISTRY_KINDS = ["model", "compound", "parameter_evidence", "dataset", "experiment"];
@@ -2053,6 +2270,10 @@
       }
       if (pane === "registry") {
         renderRegistry();
+        return;
+      }
+      if (pane === "curation") {
+        renderCuration();
         return;
       }
       if (!state.project) return;

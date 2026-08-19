@@ -121,6 +121,26 @@ class RecordVerificationRequest(BaseModel):
     run_id: str
 
 
+class RunConnectorForCurationRequest(BaseModel):
+    connector_id: str
+
+
+class SetCandidateIdentityRequest(BaseModel):
+    logical_id: str
+    evidence_class: str
+
+
+class SetCandidateCompatibilityRequest(BaseModel):
+    model_ids: tuple[str, ...] = ()
+    route: str | None = None
+    species: tuple[str, ...] = ()
+    notes: str | None = None
+
+
+class RejectCandidateRequest(BaseModel):
+    reason: str
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_ROOT / "index.html")
@@ -489,5 +509,102 @@ def post_draft_verify_record(draft_id: str, request: RecordVerificationRequest) 
 def post_draft_register(draft_id: str) -> dict[str, Any]:
     try:
         return bridge.register_model_from_draft(draft_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+# ================= Registry Curation Pipeline =================
+
+
+@app.post("/api/curation/run")
+def post_curation_run(request: RunConnectorForCurationRequest) -> dict[str, Any]:
+    try:
+        return bridge.run_connector_for_curation(request.connector_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/curation/candidates")
+def get_curation_candidates() -> list[dict[str, Any]]:
+    return bridge.list_curation_candidates()
+
+
+@app.get("/api/curation/ineligible")
+def get_curation_ineligible() -> list[dict[str, Any]]:
+    return bridge.list_ineligible_curation_candidates()
+
+
+@app.get("/api/curation/candidate/{candidate_id}")
+def get_curation_candidate(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_curation_candidate(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/curation/candidate/{candidate_id}/identity")
+def post_curation_identity(
+    candidate_id: str, request: SetCandidateIdentityRequest
+) -> dict[str, Any]:
+    try:
+        return bridge.set_curation_candidate_identity(
+            candidate_id, logical_id=request.logical_id, evidence_class=request.evidence_class
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/curation/candidate/{candidate_id}/compatibility")
+def post_curation_compatibility(
+    candidate_id: str, request: SetCandidateCompatibilityRequest
+) -> dict[str, Any]:
+    try:
+        return bridge.set_curation_candidate_compatibility(
+            candidate_id,
+            model_ids=request.model_ids,
+            route=request.route,
+            species=request.species,
+            notes=request.notes,
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/curation/candidate/{candidate_id}/license-reviewed")
+def post_curation_license_reviewed(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.mark_curation_license_reviewed(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/curation/candidate/{candidate_id}/acknowledge-identity")
+def post_curation_acknowledge_identity(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.acknowledge_curation_identity(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/curation/candidate/{candidate_id}/checklist")
+def get_curation_checklist(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_curation_checklist(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/curation/candidate/{candidate_id}/accept")
+def post_curation_accept(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.accept_curation_candidate(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/curation/candidate/{candidate_id}/reject")
+def post_curation_reject(candidate_id: str, request: RejectCandidateRequest) -> dict[str, Any]:
+    try:
+        return bridge.reject_curation_candidate(candidate_id, reason=request.reason)
     except bridge.StudioError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

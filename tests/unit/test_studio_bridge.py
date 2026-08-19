@@ -877,3 +877,180 @@ def test_record_model_draft_verification_raises_for_an_unknown_run_id(
         bridge.record_model_draft_verification(
             draft["draft_id"], run_id="no-such-run", root=str(tmp_path / "onboarding")
         )
+
+
+# ================= Registry Curation Pipeline =================
+
+
+def test_run_connector_for_curation_raises_when_r_libs_user_is_unresolved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("R_LIBS_USER", raising=False)
+    monkeypatch.setenv("OPENTRIALS_CONFIG", str(tmp_path / "does-not-exist.yaml"))
+
+    with pytest.raises(bridge.StudioError, match="unavailable"):
+        bridge.run_connector_for_curation("osp.bundled.observed-aciclovir-vergin-1995-iv")
+
+
+def test_get_curation_candidate_raises_for_an_unknown_candidate_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.get_curation_candidate("no-such-candidate", root=str(tmp_path / "curation"))
+
+
+def _make_bridge_curation_candidate(tmp_path: Path) -> dict[str, Any]:
+    """Seed a real candidate via the SDK directly, bypassing the OSP-gated bridge entry point."""
+    from datetime import UTC, datetime
+
+    from opentrials.compound import Compound, CompoundIdentity, Dose, Intervention, Regimen, Route
+    from opentrials.core.evidence import Evidence, EvidenceSet, EvidenceSourceType
+    from opentrials.core.scientific_value import ScientificValue, ValueType
+    from opentrials.evidence.connector import (
+        DataConnectorIdentity,
+        DataConnectorRunResult,
+        RawSnapshot,
+        SourceDescriptor,
+        TransformationStep,
+    )
+    from opentrials.sdk import curation as sdk_curation
+    from opentrials.validation.observed import ObservedDataset, ObservedPkObservation, ObservedStudy
+    from opentrials.validation.study import DatasetRole
+
+    def sv(value: float, unit: str) -> ScientificValue:
+        return ScientificValue(value=value, unit=unit, value_type=ValueType.OBSERVED)
+
+    class FakeConnector:
+        @property
+        def identity(self) -> DataConnectorIdentity:
+            return DataConnectorIdentity(connector_id="test.fake-bridge-connector", version="0.0.1")
+
+        def fetch(self) -> RawSnapshot:
+            return RawSnapshot(
+                content=b"{}",
+                media_type="application/json",
+                retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+
+        def normalize(self, snapshot: RawSnapshot) -> DataConnectorRunResult:
+            evidence = Evidence(
+                id="EV-fake-001",
+                source_type=EvidenceSourceType.PUBLIC_DATASET,
+                source_identifier="fake-source-001",
+                license="CC0",
+            )
+            intervention = Intervention(
+                intervention_id="fake-intervention",
+                compound=Compound(
+                    identity=CompoundIdentity(compound_id="fake", preferred_name="Fake")
+                ),
+                regimen=Regimen(
+                    regimen_id="fake-regimen",
+                    doses=(
+                        Dose(
+                            amount=sv(1, "mg"),
+                            route=Route.INTRAVENOUS,
+                            administration_time=sv(0, "minute"),
+                        ),
+                    ),
+                ),
+            )
+            dataset = ObservedDataset(
+                dataset_id="OTOBS-fake-bridge-001",
+                role=DatasetRole.CALIBRATION,
+                study=ObservedStudy(
+                    study_id="fake-study",
+                    title="Fake study",
+                    evidence_ids=(evidence.id,),
+                    population_description="Synthetic",
+                    intervention=intervention,
+                ),
+                observations=(
+                    ObservedPkObservation(
+                        observation_id="fake-obs-001",
+                        subject_or_population_id="fake-subject",
+                        time=sv(0, "minute"),
+                        value=sv(1.0, "mg/L"),
+                        analyte="fake",
+                        matrix="plasma",
+                        fraction="total",
+                        measurement="concentration",
+                        evidence_ids=(evidence.id,),
+                    ),
+                ),
+                license="CC0",
+                source_identifier="fake-source-001",
+                provenance_ids=(evidence.id,),
+            )
+            return DataConnectorRunResult(
+                identity=self.identity,
+                source=SourceDescriptor(
+                    accession="fake-source-001", license="CC0", retrieved_at=snapshot.retrieved_at
+                ),
+                raw_snapshot=snapshot,
+                transformation_provenance=(TransformationStep(description="Parsed fake rows."),),
+                evidence=EvidenceSet(evidence=(evidence,)),
+                dataset=dataset,
+            )
+
+    result = sdk_curation.create_candidate_from_connector(
+        FakeConnector(), root=tmp_path / "curation"
+    )
+    assert isinstance(result, sdk_curation.CurationCandidate)
+    return result.model_dump(mode="json")
+
+
+def test_get_curation_checklist_reports_unmet_requirements_on_a_fresh_candidate(
+    tmp_path: Path,
+) -> None:
+    candidate = _make_bridge_curation_candidate(tmp_path)
+    result = bridge.get_curation_checklist(
+        candidate["candidate_id"],
+        curation_root=str(tmp_path / "curation"),
+        registry_root=str(tmp_path / "registry"),
+    )
+    assert result["ok"] is False
+
+
+def test_accept_curation_candidate_raises_when_checklist_is_incomplete(tmp_path: Path) -> None:
+    candidate = _make_bridge_curation_candidate(tmp_path)
+    with pytest.raises(bridge.StudioError, match="unmet requirement"):
+        bridge.accept_curation_candidate(
+            candidate["candidate_id"],
+            curation_root=str(tmp_path / "curation"),
+            registry_root=str(tmp_path / "registry"),
+        )
+
+
+def test_full_curation_review_and_accept_via_the_bridge(tmp_path: Path) -> None:
+    curation_root = str(tmp_path / "curation")
+    registry_root = str(tmp_path / "registry")
+    candidate = _make_bridge_curation_candidate(tmp_path)
+    candidate_id = candidate["candidate_id"]
+
+    bridge.set_curation_candidate_identity(
+        candidate_id, logical_id="fake.dataset", evidence_class="MEASURED", root=curation_root
+    )
+    bridge.set_curation_candidate_compatibility(
+        candidate_id, model_ids=("osp.fake.model",), root=curation_root
+    )
+    bridge.mark_curation_license_reviewed(candidate_id, root=curation_root)
+    bridge.acknowledge_curation_identity(candidate_id, root=curation_root)
+
+    checklist = bridge.get_curation_checklist(
+        candidate_id, curation_root=curation_root, registry_root=registry_root
+    )
+    assert checklist["ok"] is True
+
+    result = bridge.accept_curation_candidate(
+        candidate_id, curation_root=curation_root, registry_root=registry_root
+    )
+    assert result["kind"] == "DATASET"
+    assert result["evidence_class"] == "MEASURED"
+
+
+def test_reject_curation_candidate_records_a_reason(tmp_path: Path) -> None:
+    candidate = _make_bridge_curation_candidate(tmp_path)
+    result = bridge.reject_curation_candidate(
+        candidate["candidate_id"], reason="duplicate", root=str(tmp_path / "curation")
+    )
+    assert result["outcome"] == "REJECTED"
+    assert result["rejection_reason"] == "duplicate"

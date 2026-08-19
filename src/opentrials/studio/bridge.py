@@ -61,6 +61,7 @@ from opentrials.reporting import (
     render_markdown,
 )
 from opentrials.reporting.data import ReportData
+from opentrials.sdk import curation as sdk_curation
 from opentrials.sdk import onboarding as sdk_onboarding
 from opentrials.sdk.cohort import compare_cohorts, define_and_persist_cohort
 from opentrials.sdk.evidence import default_evidence_connectors, ingest_and_persist
@@ -1147,6 +1148,138 @@ def attach_evidence_to_project(project_path: str, connector_id: str) -> dict[str
         project_path,
         {"trial": {"evidence_ids": [*config.trial.evidence_ids, manifest.run_id]}},
     )
+
+
+# ================= Registry Curation Pipeline =================
+#
+# Turns one evidence-connector run into a reviewed, evidence-classed,
+# provenance-bearing Registry DATASET record -- or, if the connector
+# itself declines the candidate, a real, listable IneligibleCandidateRecord
+# instead of the silent code-level omission ``sdk.registry_seed`` uses
+# today. Every function here is a thin translation over ``sdk.curation``;
+# the checklist/acceptance gate logic lives there, never here.
+
+
+def run_connector_for_curation(connector_id: str, *, root: str | None = None) -> dict[str, Any]:
+    runtime = resolve_osp_runtime()
+    if runtime.r_libs_user is None:
+        raise StudioError(
+            "Curation ingestion unavailable: set R_LIBS_USER, or r_libs_user in a config "
+            "file, for the local ospsuite R library."
+        )
+    connectors = {
+        c.identity.connector_id: c
+        for c in default_evidence_connectors(r_libs_user=runtime.r_libs_user)
+    }
+    connector = connectors.get(connector_id)
+    if connector is None:
+        raise StudioError(f"Unknown evidence connector: {connector_id!r}")
+
+    try:
+        result = sdk_curation.create_candidate_from_connector(connector, root=root)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise StudioError(f"Curation ingestion failed: {error}") from error
+
+    if isinstance(result, sdk_curation.IneligibleCandidateRecord):
+        return {"eligible": False, **result.model_dump(mode="json")}
+    return {"eligible": True, **result.model_dump(mode="json")}
+
+
+def list_curation_candidates(*, root: str | None = None) -> list[dict[str, Any]]:
+    return [c.model_dump(mode="json") for c in sdk_curation.list_candidates(root=root)]
+
+
+def list_ineligible_curation_candidates(*, root: str | None = None) -> list[dict[str, Any]]:
+    return [r.model_dump(mode="json") for r in sdk_curation.list_ineligible(root=root)]
+
+
+def get_curation_candidate(candidate_id: str, *, root: str | None = None) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.load_candidate(candidate_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def set_curation_candidate_identity(
+    candidate_id: str, *, logical_id: str, evidence_class: str, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.set_candidate_identity(
+            candidate_id,
+            logical_id=logical_id,
+            evidence_class=EvidenceClass(evidence_class),
+            root=root,
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def set_curation_candidate_compatibility(
+    candidate_id: str,
+    *,
+    model_ids: tuple[str, ...] = (),
+    route: str | None = None,
+    species: tuple[str, ...] = (),
+    notes: str | None = None,
+    root: str | None = None,
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.set_candidate_compatibility(
+            candidate_id, model_ids=model_ids, route=route, species=species, notes=notes, root=root
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def mark_curation_license_reviewed(candidate_id: str, *, root: str | None = None) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.mark_license_reviewed(candidate_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def acknowledge_curation_identity(candidate_id: str, *, root: str | None = None) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.acknowledge_identity(candidate_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def get_curation_checklist(
+    candidate_id: str, *, curation_root: str | None = None, registry_root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.load_candidate(candidate_id, root=curation_root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    backend = default_registry_backend(registry_root)
+    return sdk_curation.checklist(candidate, backend=backend)
+
+
+def accept_curation_candidate(
+    candidate_id: str, *, curation_root: str | None = None, registry_root: str | None = None
+) -> dict[str, Any]:
+    backend = default_registry_backend(registry_root)
+    try:
+        manifest = sdk_curation.accept_candidate(candidate_id, backend=backend, root=curation_root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return _manifest_summary(manifest)
+
+
+def reject_curation_candidate(
+    candidate_id: str, *, reason: str, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_curation.reject_candidate(candidate_id, reason=reason, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
 
 
 # ================= Run history =================
