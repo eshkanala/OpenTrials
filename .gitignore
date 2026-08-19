@@ -24,3 +24,11 @@ runs/
 .DS_Store
 .idea/
 .vscode/
+
+# Internal-only working documents (kept locally, never published)
+/HANDOFF.md
+/CAPABILITY_AUDIT.md
+/V1_READINESS_AUDIT.md
+/OpenTrials — Founding Product & Technical Specification.md
+/scripts/MIDAZOLAM_CONVERSION.md
+/scripts/V0.8_VALIDATION_DATASET_SEARCH.md
