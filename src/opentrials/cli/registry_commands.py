@@ -10,6 +10,7 @@ import argparse
 
 from opentrials.config.runtime import resolve_osp_runtime
 from opentrials.registry import RegistryError, RegistryRecordKind
+from opentrials.sdk.parameter_evidence_seed import seed_parameter_evidence
 from opentrials.sdk.registry import default_registry_backend
 from opentrials.sdk.registry_seed import seed_default_registry
 
@@ -22,12 +23,19 @@ def registry_seed(arguments: argparse.Namespace) -> int:
     )
     backend = default_registry_backend(arguments.root)
     registered = seed_default_registry(backend, r_libs_user=runtime.r_libs_user)
-    if not registered:
+    registered_parameters = seed_parameter_evidence(backend)
+    total = registered + registered_parameters
+    if not total:
         print("Registry already seeded -- nothing new to register.")
         return 0
-    print(f"Registered {len(registered)} record(s):")
-    for logical_id in registered:
-        print(f"  {logical_id}")
+    if registered:
+        print(f"Registered {len(registered)} record(s):")
+        for logical_id in registered:
+            print(f"  {logical_id}")
+    if registered_parameters:
+        print(f"\nRegistered {len(registered_parameters)} real, cited parameter value(s):")
+        for logical_id in registered_parameters:
+            print(f"  {logical_id}")
     if runtime.r_libs_user is None:
         print(
             "\nNote: skipped the Vergin 1995 dataset (needs real OSP) -- set "

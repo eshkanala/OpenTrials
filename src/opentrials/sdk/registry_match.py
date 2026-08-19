@@ -104,13 +104,19 @@ def match_parameter_evidence(
     *,
     compound_id: str | None = None,
     target: str | None = None,
+    canonical_parameter_id: str | None = None,
     backend: RegistryBackend,
 ) -> list[RegistryMatch]:
-    """Registered PARAMETER_EVIDENCE records matching ``compound_id`` and/or ``target``.
+    """Registered PARAMETER_EVIDENCE records matching any of the given criteria.
 
-    Requires at least one real criterion match -- a record with neither a
-    matching compound nor a matching target is never returned, even if it
-    is the only PARAMETER_EVIDENCE record that exists.
+    Requires at least one real criterion match -- a record matching none of
+    ``compound_id``/``target``/``canonical_parameter_id`` is never returned,
+    even if it is the only PARAMETER_EVIDENCE record that exists.
+    ``canonical_parameter_id`` matches this project's own naming convention
+    (``sdk.parameter_identity``): a record's own ``parameter_id`` is either
+    exactly the canonical id or ends with ``.<canonical_id>`` (e.g.
+    ``"aciclovir.renal_clearance"``) -- an exact structural check, not fuzzy
+    string matching.
     """
     matches: list[RegistryMatch] = []
     for manifest in backend.list(RegistryRecordKind.PARAMETER_EVIDENCE):
@@ -119,11 +125,18 @@ def match_parameter_evidence(
         score = 0
         payload_compound_id = getattr(payload, "compound_id", None)
         payload_target = getattr(payload, "target", None)
+        payload_parameter_id = getattr(payload, "parameter_id", None)
         if compound_id is not None and payload_compound_id == compound_id:
             reasons.append(f"Compound identity matches: compound_id={compound_id!r}.")
             score += 1
         if target is not None and payload_target == target:
             reasons.append(f"Parameter target matches: {target!r}.")
+            score += 1
+        if canonical_parameter_id is not None and payload_parameter_id is not None and (
+            payload_parameter_id == canonical_parameter_id
+            or payload_parameter_id.endswith(f".{canonical_parameter_id}")
+        ):
+            reasons.append(f"Canonical parameter identity matches: {canonical_parameter_id!r}.")
             score += 1
         if not reasons:
             continue

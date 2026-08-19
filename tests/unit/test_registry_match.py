@@ -197,6 +197,35 @@ def test_match_parameter_evidence_requires_at_least_one_real_criterion(
     assert both[0].compatibility.value == "HIGH"
 
 
+def test_match_parameter_evidence_matches_on_canonical_parameter_id(
+    backend: FilesystemRegistryBackend,
+) -> None:
+    backend.put(
+        RegistryRecordKind.PARAMETER_EVIDENCE,
+        ParameterEvidenceRecord(
+            parameter_id="aciclovir.renal_clearance",
+            compound_id="aciclovir",
+            value=assumed(3.5, "L/hour"),
+        ),
+        logical_id="aciclovir.renal_clearance",
+        evidence_class=EvidenceClass.MEASURED,
+        license="CC-BY-4.0",
+        source=manual_source(),
+    )
+
+    # A different canonical id -- must not match on that criterion alone with no others.
+    assert (
+        match_parameter_evidence(canonical_parameter_id="hepatic_clearance", backend=backend) == []
+    )
+
+    both = match_parameter_evidence(
+        compound_id="aciclovir", canonical_parameter_id="renal_clearance", backend=backend
+    )
+    assert len(both) == 1
+    assert both[0].compatibility.value == "HIGH"
+    assert any("Canonical parameter identity matches" in r for r in both[0].reasons)
+
+
 def test_match_summary_is_json_friendly(backend: FilesystemRegistryBackend) -> None:
     backend.put(
         RegistryRecordKind.COMPOUND,

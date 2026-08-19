@@ -1054,3 +1054,115 @@ def test_reject_curation_candidate_records_a_reason(tmp_path: Path) -> None:
     )
     assert result["outcome"] == "REJECTED"
     assert result["rejection_reason"] == "duplicate"
+
+
+# ================= Parameter Evidence (Registry v0.2) =================
+
+
+def test_list_parameter_identities_includes_the_curated_vocabulary() -> None:
+    identities = bridge.list_parameter_identities()
+    canonical_ids = {i["canonical_id"] for i in identities}
+    assert "renal_clearance" in canonical_ids
+
+
+def test_propose_parameter_evidence_rejects_an_incompatible_unit(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError, match="not dimensionally compatible"):
+        bridge.propose_parameter_evidence(
+            compound_id="aciclovir",
+            canonical_parameter_id="renal_clearance",
+            value=1.0,
+            unit="L",
+            value_type="OBSERVED",
+            citation_url="https://example.org/label",
+            citation_title="Example label",
+            citation_excerpt="Renal clearance was reported as 3.5 L/hour.",
+            root=str(tmp_path / "curation"),
+        )
+
+
+def test_propose_parameter_evidence_persists_a_reviewable_candidate(tmp_path: Path) -> None:
+    result = bridge.propose_parameter_evidence(
+        compound_id="aciclovir",
+        canonical_parameter_id="renal_clearance",
+        value=3.5,
+        unit="L/hour",
+        value_type="OBSERVED",
+        citation_url="https://example.org/label",
+        citation_title="Example label",
+        citation_excerpt="Renal clearance was reported as 3.5 L/hour.",
+        species="human",
+        root=str(tmp_path / "curation"),
+    )
+    assert result["outcome"] == "PENDING"
+    assert result["value"]["value"] == 3.5
+
+    listed = bridge.list_parameter_evidence_candidates(root=str(tmp_path / "curation"))
+    assert len(listed) == 1
+
+    fetched = bridge.get_parameter_evidence_candidate(
+        result["candidate_id"], root=str(tmp_path / "curation")
+    )
+    assert fetched["candidate_id"] == result["candidate_id"]
+
+
+def test_get_parameter_evidence_candidate_raises_for_an_unknown_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.get_parameter_evidence_candidate(
+            "no-such-candidate", root=str(tmp_path / "curation")
+        )
+
+
+def test_full_parameter_evidence_review_and_accept_via_the_bridge(tmp_path: Path) -> None:
+    curation_root = str(tmp_path / "curation")
+    registry_root = str(tmp_path / "registry")
+    candidate = bridge.propose_parameter_evidence(
+        compound_id="aciclovir",
+        canonical_parameter_id="renal_clearance",
+        value=3.5,
+        unit="L/hour",
+        value_type="OBSERVED",
+        citation_url="https://example.org/label",
+        citation_title="Example label",
+        citation_excerpt="Renal clearance was reported as 3.5 L/hour.",
+        species="human",
+        root=curation_root,
+    )
+    candidate_id = candidate["candidate_id"]
+
+    bridge.set_parameter_evidence_identity(
+        candidate_id,
+        logical_id="aciclovir.renal_clearance.example",
+        evidence_class="MEASURED",
+        root=curation_root,
+    )
+    bridge.mark_parameter_evidence_citation_reviewed(candidate_id, root=curation_root)
+
+    checklist = bridge.get_parameter_evidence_checklist(
+        candidate_id, curation_root=curation_root, registry_root=registry_root
+    )
+    assert checklist["ok"] is True
+
+    result = bridge.accept_parameter_evidence_candidate(
+        candidate_id, curation_root=curation_root, registry_root=registry_root
+    )
+    assert result["kind"] == "PARAMETER_EVIDENCE"
+    assert result["evidence_class"] == "MEASURED"
+
+
+def test_reject_parameter_evidence_candidate_records_a_reason(tmp_path: Path) -> None:
+    candidate = bridge.propose_parameter_evidence(
+        compound_id="aciclovir",
+        canonical_parameter_id="renal_clearance",
+        value=3.5,
+        unit="L/hour",
+        value_type="OBSERVED",
+        citation_url="https://example.org/label",
+        citation_title="Example label",
+        citation_excerpt="Renal clearance was reported as 3.5 L/hour.",
+        root=str(tmp_path / "curation"),
+    )
+    result = bridge.reject_parameter_evidence_candidate(
+        candidate["candidate_id"], reason="not a primary source", root=str(tmp_path / "curation")
+    )
+    assert result["outcome"] == "REJECTED"
+    assert result["rejection_reason"] == "not a primary source"

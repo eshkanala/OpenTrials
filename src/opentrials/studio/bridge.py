@@ -40,6 +40,7 @@ from opentrials.config.project import (
     load_project,
 )
 from opentrials.config.runtime import resolve_osp_runtime
+from opentrials.core.scientific_value import ValueType
 from opentrials.core.serialization import sha256
 from opentrials.events import Event
 from opentrials.evidence.connector import IneligibleEvidenceCandidateError, run_connector
@@ -63,12 +64,14 @@ from opentrials.reporting import (
 from opentrials.reporting.data import ReportData
 from opentrials.sdk import curation as sdk_curation
 from opentrials.sdk import onboarding as sdk_onboarding
+from opentrials.sdk import parameter_evidence as sdk_parameter_evidence
 from opentrials.sdk.cohort import compare_cohorts, define_and_persist_cohort
 from opentrials.sdk.evidence import default_evidence_connectors, ingest_and_persist
 from opentrials.sdk.model_onboarding import (
     generate_profile_scaffold,
     inspect_model,
 )
+from opentrials.sdk.parameter_identity import PARAMETER_IDENTITIES
 from opentrials.sdk.physiology import run_trial_physiology_states, verify_physiology_states
 from opentrials.sdk.project import Project, dose_mg_for_model
 from opentrials.sdk.registry import default_model_registry, default_registry_backend
@@ -1277,6 +1280,142 @@ def reject_curation_candidate(
 ) -> dict[str, Any]:
     try:
         candidate = sdk_curation.reject_candidate(candidate_id, reason=reason, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+# ================= Parameter Evidence (Registry v0.2) =================
+#
+# Registry v0.2's own research pass found no bulk-importable parameter
+# source anywhere available to this project -- every function here treats
+# proposing a value as the manual, cited act it actually is, while
+# unit-dimensionality validation and duplicate/conflict detection against
+# already-registered evidence remain real, automated, checklist-gated
+# machinery. Every function is a thin translation over
+# ``sdk.parameter_evidence``; the gate logic lives there, never here.
+
+
+def list_parameter_identities() -> list[dict[str, Any]]:
+    return [identity.model_dump(mode="json") for identity in PARAMETER_IDENTITIES]
+
+
+def propose_parameter_evidence(
+    *,
+    compound_id: str,
+    canonical_parameter_id: str,
+    value: float,
+    unit: str,
+    value_type: str,
+    citation_url: str,
+    citation_title: str,
+    citation_excerpt: str,
+    species: str | None = None,
+    population: str | None = None,
+    method: str | None = None,
+    root: str | None = None,
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.propose_candidate(
+            compound_id=compound_id,
+            canonical_parameter_id=canonical_parameter_id,
+            value=value,
+            unit=unit,
+            value_type=ValueType(value_type),
+            citation=sdk_parameter_evidence.LiteratureCitation(
+                url=citation_url,
+                title=citation_title,
+                retrieved_at=datetime.now(UTC),
+                excerpt=citation_excerpt,
+            ),
+            species=species,
+            population=population,
+            method=method,
+            root=root,
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def list_parameter_evidence_candidates(*, root: str | None = None) -> list[dict[str, Any]]:
+    return [c.model_dump(mode="json") for c in sdk_parameter_evidence.list_candidates(root=root)]
+
+
+def get_parameter_evidence_candidate(
+    candidate_id: str, *, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.load_candidate(candidate_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def set_parameter_evidence_identity(
+    candidate_id: str, *, logical_id: str, evidence_class: str, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.set_candidate_identity(
+            candidate_id,
+            logical_id=logical_id,
+            evidence_class=EvidenceClass(evidence_class),
+            root=root,
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def mark_parameter_evidence_citation_reviewed(
+    candidate_id: str, *, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.mark_citation_reviewed(candidate_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def acknowledge_parameter_evidence_conflict(
+    candidate_id: str, *, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.acknowledge_conflict(candidate_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return candidate.model_dump(mode="json")
+
+
+def get_parameter_evidence_checklist(
+    candidate_id: str, *, curation_root: str | None = None, registry_root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.load_candidate(candidate_id, root=curation_root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    backend = default_registry_backend(registry_root)
+    return sdk_parameter_evidence.checklist(candidate, backend=backend)
+
+
+def accept_parameter_evidence_candidate(
+    candidate_id: str, *, curation_root: str | None = None, registry_root: str | None = None
+) -> dict[str, Any]:
+    backend = default_registry_backend(registry_root)
+    try:
+        manifest = sdk_parameter_evidence.accept_candidate(
+            candidate_id, backend=backend, root=curation_root
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return _manifest_summary(manifest)
+
+
+def reject_parameter_evidence_candidate(
+    candidate_id: str, *, reason: str, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        candidate = sdk_parameter_evidence.reject_candidate(candidate_id, reason=reason, root=root)
     except ValueError as error:
         raise StudioError(str(error)) from error
     return candidate.model_dump(mode="json")

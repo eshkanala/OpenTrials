@@ -1344,7 +1344,11 @@
       '<div class="panel"><div class="phead">Run a connector for curation</div><div class="pbody" id="curationConnectors"><span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span></div></div>' +
       '<div class="panel"><div class="phead">Candidates</div><div class="pbody" id="curationCandidates"></div></div>' +
       '<div class="panel"><div class="phead">Ineligible (connector declined)</div><div class="pbody" id="curationIneligible"></div></div>' +
-      '<div id="curationReview" style="margin-top:10px;"></div>';
+      '<div id="curationReview" style="margin-top:10px;"></div>' +
+      '<div class="app-topbar" style="margin-top:16px;"><div><h3>Parameter evidence</h3><div class="sub">Real, individually-cited PK/PD parameter values &mdash; no bulk import, every value manually sourced and reviewed</div></div></div>' +
+      '<div class="panel"><div class="phead">Propose a value</div><div class="pbody" id="parameterEvidencePropose"></div></div>' +
+      '<div class="panel"><div class="phead">Candidates</div><div class="pbody" id="parameterEvidenceCandidates"></div></div>' +
+      '<div id="parameterEvidenceReview" style="margin-top:10px;"></div>';
 
     fetch("/api/evidence").then(function (r) { return r.json(); }).then(function (connectors) {
       var box = document.getElementById("curationConnectors");
@@ -1380,6 +1384,8 @@
     });
 
     loadCurationLists();
+    renderParameterEvidenceProposeForm();
+    loadParameterEvidenceCandidates();
   }
 
   function loadCurationLists() {
@@ -1549,6 +1555,216 @@
       fetch("/api/curation/candidate/" + candidateId + "/acknowledge-identity", { method: "POST" })
         .then(function (r) { return r.json(); })
         .then(function () { refreshCurationCandidate(candidateId); });
+    });
+  }
+
+  // ================= Parameter evidence (Registry v0.2) =================
+
+  function renderParameterEvidenceProposeForm() {
+    var box = document.getElementById("parameterEvidencePropose");
+    box.innerHTML = '<span style="color:var(--ink-faint);font-size:11px;">Loading&hellip;</span>';
+    fetch("/api/parameter-identities").then(function (r) { return r.json(); }).then(function (identities) {
+      box.innerHTML =
+        '<div class="field"><span class="flabel">Compound ID</span><input class="finput" id="peCompoundId" type="text" placeholder="e.g. aciclovir" /></div>' +
+        '<div class="field"><span class="flabel">Canonical parameter</span><select class="fselect" id="peCanonicalId">' +
+        identities.map(function (i) { return '<option value="' + escapeAttr(i.canonical_id) + '">' + escapeHtml(i.canonical_id) + " (" + escapeHtml(i.reference_unit) + ")</option>"; }).join("") +
+        "</select></div>" +
+        '<div class="frow2"><div class="field"><span class="flabel">Value</span><input class="finput" id="peValue" type="number" step="any" /></div>' +
+        '<div class="field"><span class="flabel">Unit</span><input class="finput" id="peUnit" type="text" placeholder="e.g. L/hour" /></div></div>' +
+        '<div class="field"><span class="flabel">Value type</span><select class="fselect" id="peValueType">' +
+        ["OBSERVED", "DERIVED", "ESTIMATED", "FITTED", "INFERRED", "PREDICTED", "ASSUMED", "CALIBRATED"].map(function (v) {
+          return '<option value="' + v + '"' + (v === "OBSERVED" ? " selected" : "") + ">" + v + "</option>";
+        }).join("") + "</select></div>" +
+        '<div class="frow2"><div class="field"><span class="flabel">Species (optional)</span><input class="finput" id="peSpecies" type="text" placeholder="human" /></div>' +
+        '<div class="field"><span class="flabel">Population (optional)</span><input class="finput" id="pePopulation" type="text" /></div></div>' +
+        '<div class="field"><span class="flabel">Method (optional)</span><input class="finput" id="peMethod" type="text" /></div>' +
+        '<div class="field"><span class="flabel">Citation URL</span><input class="finput" id="peCitationUrl" type="text" placeholder="https://..." /></div>' +
+        '<div class="field"><span class="flabel">Citation title</span><input class="finput" id="peCitationTitle" type="text" /></div>' +
+        '<div class="field"><span class="flabel">Excerpt (the literal text the value was read from)</span><input class="finput" id="peCitationExcerpt" type="text" /></div>' +
+        '<span class="btn btn-primary raised" id="peProposeBtn" style="cursor:pointer;">Propose</span>' +
+        '<div id="peProposeResult" style="margin-top:8px;"></div>';
+
+      document.getElementById("peProposeBtn").addEventListener("click", function () {
+        var out = document.getElementById("peProposeResult");
+        var body = {
+          compound_id: document.getElementById("peCompoundId").value.trim(),
+          canonical_parameter_id: document.getElementById("peCanonicalId").value,
+          value: parseFloat(document.getElementById("peValue").value),
+          unit: document.getElementById("peUnit").value.trim(),
+          value_type: document.getElementById("peValueType").value,
+          species: document.getElementById("peSpecies").value.trim() || null,
+          population: document.getElementById("pePopulation").value.trim() || null,
+          method: document.getElementById("peMethod").value.trim() || null,
+          citation_url: document.getElementById("peCitationUrl").value.trim(),
+          citation_title: document.getElementById("peCitationTitle").value.trim(),
+          citation_excerpt: document.getElementById("peCitationExcerpt").value.trim(),
+        };
+        if (!body.compound_id || !body.unit || isNaN(body.value) || !body.citation_url || !body.citation_title || !body.citation_excerpt) {
+          out.innerHTML = '<span style="color:var(--absent)">Compound ID, value, unit, and full citation are required.</span>';
+          return;
+        }
+        out.innerHTML = "Proposing…";
+        fetch("/api/parameter-evidence/propose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "propose failed"); });
+            return r.json();
+          })
+          .then(function () {
+            out.innerHTML = "Proposed.";
+            loadParameterEvidenceCandidates();
+          })
+          .catch(function (err) {
+            out.innerHTML = '<div class="error-banner"><strong>Could not propose.</strong><br />' + escapeHtml(err.message) + "</div>";
+          });
+      });
+    });
+  }
+
+  function loadParameterEvidenceCandidates() {
+    fetch("/api/parameter-evidence/candidates").then(function (r) { return r.json(); }).then(function (candidates) {
+      var box = document.getElementById("parameterEvidenceCandidates");
+      box.innerHTML = candidates.length
+        ? candidates.map(function (c) {
+            var statusClass = c.outcome === "ACCEPTED" ? "verified" : c.outcome === "REJECTED" ? "absent" : "pending";
+            return (
+              '<div class="param-row" style="cursor:pointer;" data-pe-candidate="' + escapeAttr(c.candidate_id) + '">' +
+              '<span class="sq ' + statusClass + '"></span>' +
+              '<span class="mono">' + escapeHtml(c.compound_id) + "." + escapeHtml(c.canonical_parameter_id) + "</span>" +
+              '<span style="margin-left:8px;">' + c.value.value + " " + escapeHtml(c.value.unit) + "</span>" +
+              '<span style="margin-left:auto;">' + escapeHtml(c.outcome) + "</span></div>"
+            );
+          }).join("")
+        : '<div class="empty-state">No candidates yet.</div>';
+      box.querySelectorAll("[data-pe-candidate]").forEach(function (row) {
+        row.addEventListener("click", function () { renderParameterEvidenceReview(row.dataset.peCandidate); });
+      });
+    });
+  }
+
+  function renderParameterEvidenceReview(candidateId) {
+    var container = document.getElementById("parameterEvidenceReview");
+    container.innerHTML =
+      '<div class="panel"><div class="phead">Review candidate</div><div class="pbody" id="peReviewBody-' + candidateId + '"></div></div>' +
+      '<div class="panel"><div class="phead">Validation checklist</div><div class="pbody" id="peChecklist-' + candidateId + '"></div></div>';
+    refreshParameterEvidenceCandidate(candidateId);
+  }
+
+  function refreshParameterEvidenceCandidate(candidateId) {
+    fetch("/api/parameter-evidence/candidate/" + candidateId)
+      .then(function (r) { return r.json(); })
+      .then(function (candidate) {
+        renderParameterEvidenceReviewBody(candidate);
+        return fetch("/api/parameter-evidence/candidate/" + candidateId + "/checklist");
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (checklist) { renderParameterEvidenceChecklist(candidateId, checklist); });
+  }
+
+  function renderParameterEvidenceChecklist(candidateId, checklist) {
+    var body = document.getElementById("peChecklist-" + candidateId);
+    if (!body) return;
+    var rungs = checklist.checks.map(function (c) {
+      return (
+        '<div class="rung"><span class="sq ' + c.status + '"></span>' +
+        '<span class="txt"><strong>' + escapeHtml(c.label) + "</strong><span>" + escapeHtml(c.detail) + "</span></span></div>"
+      );
+    }).join("");
+    body.innerHTML =
+      '<div class="status-ladder">' + rungs + "</div>" +
+      '<div style="margin-top:10px;display:flex;gap:8px;">' +
+      '<span class="btn btn-primary raised" id="peAcceptBtn-' + candidateId + '" style="cursor:pointer;">Accept &amp; register</span>' +
+      '<span class="btn raised" id="peRejectBtn-' + candidateId + '" style="cursor:pointer;">Reject</span>' +
+      "</div>" +
+      '<div id="peAcceptResult-' + candidateId + '" style="margin-top:8px;"></div>';
+
+    var acceptBtn = document.getElementById("peAcceptBtn-" + candidateId);
+    if (checklist.ok) {
+      acceptBtn.addEventListener("click", function () {
+        var out = document.getElementById("peAcceptResult-" + candidateId);
+        out.innerHTML = "Accepting…";
+        fetch("/api/parameter-evidence/candidate/" + candidateId + "/accept", { method: "POST" })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "accept failed"); });
+            return r.json();
+          })
+          .then(function (result) {
+            out.innerHTML = '<div class="hash-line"><span class="k">Registered</span><span class="v mono">' + escapeHtml(result.record_id) + "</span></div>";
+            loadParameterEvidenceCandidates();
+          })
+          .catch(function (err) {
+            out.innerHTML = '<div class="error-banner"><strong>Accept failed.</strong><br />' + escapeHtml(err.message) + "</div>";
+          });
+      });
+    } else {
+      acceptBtn.style.opacity = "0.5";
+      acceptBtn.style.cursor = "default";
+    }
+
+    document.getElementById("peRejectBtn-" + candidateId).addEventListener("click", function () {
+      var reason = window.prompt("Reason for rejecting this candidate:");
+      if (!reason) return;
+      fetch("/api/parameter-evidence/candidate/" + candidateId + "/reject", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function () { loadParameterEvidenceCandidates(); refreshParameterEvidenceCandidate(candidateId); });
+    });
+  }
+
+  function renderParameterEvidenceReviewBody(candidate) {
+    var candidateId = candidate.candidate_id;
+    var body = document.getElementById("peReviewBody-" + candidateId);
+    if (!body) return;
+
+    body.innerHTML =
+      '<div class="propgrid">' +
+      '<div class="prow"><div class="pk">Compound</div><div class="pv">' + escapeHtml(candidate.compound_id) + "</div></div>" +
+      '<div class="prow"><div class="pk">Parameter</div><div class="pv">' + escapeHtml(candidate.canonical_parameter_id) + "</div></div>" +
+      '<div class="prow"><div class="pk">Value</div><div class="pv mono">' + candidate.value.value + " " + escapeHtml(candidate.value.unit) + "</div></div>" +
+      '<div class="prow"><div class="pk">Context</div><div class="pv">' + escapeHtml([candidate.value.species, candidate.value.population, candidate.value.method].filter(Boolean).join(" &middot; ") || "none declared") + "</div></div>" +
+      '<div class="prow"><div class="pk">Citation</div><div class="pv"><a href="' + escapeAttr(candidate.citation.url) + '" target="_blank" rel="noopener">' + escapeHtml(candidate.citation.title) + "</a></div></div>" +
+      "</div>" +
+      '<div class="ec-body" style="padding-left:0;margin-top:6px;">&ldquo;' + escapeHtml(candidate.citation.excerpt) + '&rdquo;</div>' +
+      '<div class="field" style="margin-top:10px;"><span class="flabel">Logical ID</span><input class="finput" id="peLogicalId-' + candidateId + '" type="text" value="' + escapeAttr(candidate.proposed_logical_id || "") + '" /></div>' +
+      '<div class="field"><span class="flabel">Evidence class</span><select class="fselect" id="peEvidenceClass-' + candidateId + '">' +
+      ["MEASURED", "CURATED", "DERIVED", "FITTED", "MODEL_INHERITED", "SIMULATED", "ASSUMED"].map(function (e) {
+        return '<option value="' + e + '"' + (e === "MEASURED" ? " selected" : "") + ">" + e + "</option>";
+      }).join("") + "</select></div>" +
+      '<span class="btn raised" id="peSaveIdentity-' + candidateId + '" style="cursor:pointer;">Save identity</span>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;">' +
+      '<span class="btn raised" id="peCitationReviewed-' + candidateId + '" style="cursor:pointer;">' + (candidate.citation_reviewed ? "Citation reviewed &#10003;" : "Mark citation reviewed") + "</span>" +
+      '<span class="btn raised" id="peAckConflict-' + candidateId + '" style="cursor:pointer;">' + (candidate.conflict_acknowledged ? "Conflict acknowledged &#10003;" : "Acknowledge conflict") + "</span>" +
+      "</div>";
+
+    document.getElementById("peSaveIdentity-" + candidateId).addEventListener("click", function () {
+      var logicalId = document.getElementById("peLogicalId-" + candidateId).value.trim();
+      var evidenceClass = document.getElementById("peEvidenceClass-" + candidateId).value;
+      if (!logicalId) return;
+      fetch("/api/parameter-evidence/candidate/" + candidateId + "/identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logical_id: logicalId, evidence_class: evidenceClass }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshParameterEvidenceCandidate(candidateId); });
+    });
+
+    document.getElementById("peCitationReviewed-" + candidateId).addEventListener("click", function () {
+      fetch("/api/parameter-evidence/candidate/" + candidateId + "/citation-reviewed", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshParameterEvidenceCandidate(candidateId); });
+    });
+
+    document.getElementById("peAckConflict-" + candidateId).addEventListener("click", function () {
+      fetch("/api/parameter-evidence/candidate/" + candidateId + "/acknowledge-conflict", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshParameterEvidenceCandidate(candidateId); });
     });
   }
 

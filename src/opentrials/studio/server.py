@@ -141,6 +141,20 @@ class RejectCandidateRequest(BaseModel):
     reason: str
 
 
+class ProposeParameterEvidenceRequest(BaseModel):
+    compound_id: str
+    canonical_parameter_id: str
+    value: float
+    unit: str
+    value_type: str
+    citation_url: str
+    citation_title: str
+    citation_excerpt: str
+    species: str | None = None
+    population: str | None = None
+    method: str | None = None
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_ROOT / "index.html")
@@ -606,5 +620,100 @@ def post_curation_accept(candidate_id: str) -> dict[str, Any]:
 def post_curation_reject(candidate_id: str, request: RejectCandidateRequest) -> dict[str, Any]:
     try:
         return bridge.reject_curation_candidate(candidate_id, reason=request.reason)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+# ================= Parameter Evidence (Registry v0.2) =================
+
+
+@app.get("/api/parameter-identities")
+def get_parameter_identities() -> list[dict[str, Any]]:
+    return bridge.list_parameter_identities()
+
+
+@app.post("/api/parameter-evidence/propose")
+def post_parameter_evidence_propose(request: ProposeParameterEvidenceRequest) -> dict[str, Any]:
+    try:
+        return bridge.propose_parameter_evidence(
+            compound_id=request.compound_id,
+            canonical_parameter_id=request.canonical_parameter_id,
+            value=request.value,
+            unit=request.unit,
+            value_type=request.value_type,
+            citation_url=request.citation_url,
+            citation_title=request.citation_title,
+            citation_excerpt=request.citation_excerpt,
+            species=request.species,
+            population=request.population,
+            method=request.method,
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/parameter-evidence/candidates")
+def get_parameter_evidence_candidates() -> list[dict[str, Any]]:
+    return bridge.list_parameter_evidence_candidates()
+
+
+@app.get("/api/parameter-evidence/candidate/{candidate_id}")
+def get_parameter_evidence_candidate(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_parameter_evidence_candidate(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/parameter-evidence/candidate/{candidate_id}/identity")
+def post_parameter_evidence_identity(
+    candidate_id: str, request: SetCandidateIdentityRequest
+) -> dict[str, Any]:
+    try:
+        return bridge.set_parameter_evidence_identity(
+            candidate_id, logical_id=request.logical_id, evidence_class=request.evidence_class
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/parameter-evidence/candidate/{candidate_id}/citation-reviewed")
+def post_parameter_evidence_citation_reviewed(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.mark_parameter_evidence_citation_reviewed(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/parameter-evidence/candidate/{candidate_id}/acknowledge-conflict")
+def post_parameter_evidence_acknowledge_conflict(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.acknowledge_parameter_evidence_conflict(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/parameter-evidence/candidate/{candidate_id}/checklist")
+def get_parameter_evidence_checklist(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_parameter_evidence_checklist(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/parameter-evidence/candidate/{candidate_id}/accept")
+def post_parameter_evidence_accept(candidate_id: str) -> dict[str, Any]:
+    try:
+        return bridge.accept_parameter_evidence_candidate(candidate_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/parameter-evidence/candidate/{candidate_id}/reject")
+def post_parameter_evidence_reject(
+    candidate_id: str, request: RejectCandidateRequest
+) -> dict[str, Any]:
+    try:
+        return bridge.reject_parameter_evidence_candidate(candidate_id, reason=request.reason)
     except bridge.StudioError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
