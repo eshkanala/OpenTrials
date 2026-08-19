@@ -20,8 +20,8 @@ Aciclovir IV model bundled with `ospsuite` (`models/profiles/aciclovir_iv.py`).
 `opentrials models show` prints its full declared capability — compounds,
 administration routes, physiology targets, outputs, and what it
 explicitly does *not* support and why (e.g. repeated dosing — `ospsuite`'s
-R API has no dosing-protocol-authoring function at all, confirmed by
-enumerating every exported function; see `HANDOFF.md`'s v0.5 entry).
+R API has no dosing-protocol-authoring function at all, confirmed
+directly by enumerating every exported function).
 
 If `project.yaml` doesn't declare a `model_id`, OpenTrials resolves it
 automatically *only* when exactly one model is registered — with more
@@ -30,10 +30,11 @@ than one, you must be explicit.
 ## Bringing in a new model: discover, then scaffold, then verify
 
 This is a deliberately three-step, human-in-the-loop process. Nothing
-here auto-registers a model — see `HANDOFF.md`'s v0.7-C entry for why
-that discipline matters (a second-model proof failed for months on an
-external tooling blocker, and the project chose to stay blocked rather
-than fake a proof).
+here auto-registers a model — a second-model proof has remained blocked
+for months on an external tooling limitation (see
+[`docs/project-status.md`](project-status.md)), and the project has
+chosen to stay honestly blocked rather than fake a proof. That discipline
+matters more than moving fast here.
 
 ### 1. Inspect
 

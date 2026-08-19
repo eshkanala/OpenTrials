@@ -8,9 +8,9 @@ has been run against actual OSP output — this page is not aspirational.
 
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/).
 - A local installation of `ospsuite` for R, and the .NET runtime it
-  requires. OpenTrials does not bundle or install OSP for you — see
-  `HANDOFF.md`'s "external-runtime reminder" section for the exact
-  versions this project has been verified against.
+  requires. OpenTrials does not bundle or install OSP for you. This
+  project has been verified against macOS (Apple Silicon), framework R
+  4.6.1, `ospsuite` 12.4.4, and .NET 8.0.30.
 - The path to your `ospsuite` R library (you'll pass this as
   `--r-libs-user`, or set it once as the `R_LIBS_USER` environment
   variable).

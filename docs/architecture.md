@@ -90,7 +90,4 @@ Start at `docs/quickstart.md`, run it, then read (in this order):
 `models/capability.py` (what a model declares), one orchestration module
 that interests you (`orchestration/trial_execution.py` is the most
 complete), its corresponding `storage/` artifact type, and finally
-`sdk/project.py`/`sdk/run.py` to see how they compose. `HANDOFF.md`'s
-dated entries are the authoritative record of *why* each capability is
-shaped the way it is — read the entry for whatever module you're looking
-at before changing it.
+`sdk/project.py`/`sdk/run.py` to see how they compose.

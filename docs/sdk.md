@@ -25,8 +25,9 @@ population, and routes automatically: two or more declared arms go
 through `sdk.trial.run_trial` (a real allocated, multi-arm comparison);
 exactly one arm goes through `sdk.population.run_population` (one dose,
 the whole population). These are two genuinely different existing
-capabilities, not an SDK-invented distinction — see `HANDOFF.md`'s v0.5/
-v0.4 entries for what each one actually verifies.
+capabilities, not an SDK-invented distinction — see
+`orchestration/trial_execution.py` and `orchestration/population_execution.py`
+for what each one actually verifies.
 
 ## Descending past the summary
 

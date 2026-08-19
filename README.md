@@ -256,11 +256,6 @@ See [`docs/limitations.md`](docs/limitations.md) for details.
 | [`docs/limitations.md`](docs/limitations.md) | Scientific and engineering limitations |
 | [`docs/project-status.md`](docs/project-status.md) | Release status and outstanding work |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide |
-| [`CAPABILITY_AUDIT.md`](CAPABILITY_AUDIT.md) | Capability audit against the founding specification |
-| [`V1_READINESS_AUDIT.md`](V1_READINESS_AUDIT.md) | Release-readiness audit |
-| [`OpenTrials — Founding Product & Technical Specification.md`](OpenTrials%20%E2%80%94%20Founding%20Product%20%26%20Technical%20Specification.md) | Founding product and technical specification |
-
-Detailed chronological engineering notes are maintained in [`HANDOFF.md`](HANDOFF.md).
 
 ## Development
 

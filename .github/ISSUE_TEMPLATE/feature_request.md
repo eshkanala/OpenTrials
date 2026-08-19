@@ -14,7 +14,7 @@ general capability wish.
 ## What exists today
 
 Have you checked `opentrials models list`, `docs/sdk.md`, and
-`HANDOFF.md`'s dated entries for something close to this already? Link
+`docs/project-status.md` for something close to this already? Link
 whatever's closest, and explain the gap.
 
 ## Proposed shape
@@ -27,9 +27,8 @@ it a view/report over existing artifacts (`reporting/`)?
 ## Scientific verification needed
 
 Most new capabilities in this project require a live-OSP capability probe
-before any code is written (see e.g. `HANDOFF.md`'s v0.6-A entry). What
-would need to be verified against real OSP before this could be built
-honestly, rather than assumed?
+before any code is written. What would need to be verified against real
+OSP before this could be built honestly, rather than assumed?
 
 ## Are you willing to work on this
 

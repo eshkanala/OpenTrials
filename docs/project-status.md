@@ -2,8 +2,6 @@
 
 This document tracks the current release state of OpenTrials without turning the main README into a changelog.
 
-For the full implementation history, design decisions, empirical probes, and live-test evidence, see [`HANDOFF.md`](../HANDOFF.md). For a capability-by-capability assessment against the founding specification, see [`CAPABILITY_AUDIT.md`](../CAPABILITY_AUDIT.md). For the adoption-focused release audit, see [`V1_READINESS_AUDIT.md`](../V1_READINESS_AUDIT.md).
-
 ## Current release
 
 **Current release candidate:** `v1.0.0-rc.1`
@@ -52,10 +50,7 @@ The generic model architecture no longer contains aciclovir-specific logic in th
 
 The selected second model is the official GPL-2.0 Open Systems Pharmacology Midazolam model. It is intentionally a difficult generalization test because it differs from aciclovir in compound, clearance mechanism, protocols, route/formulation coverage, and upstream model packaging.
 
-The upstream model is distributed as a PK-Sim snapshot rather than a ready `.pkml`. On the currently verified macOS OSP runtime, snapshot conversion is externally blocked: the supported snapshot-run path refuses Darwin and the lower-level project-loading path was empirically observed to segfault. A reproducible Windows/Linux conversion procedure is stored in:
-
-- [`scripts/convert_midazolam_snapshot.R`](../scripts/convert_midazolam_snapshot.R)
-- [`scripts/MIDAZOLAM_CONVERSION.md`](../scripts/MIDAZOLAM_CONVERSION.md)
+The upstream model is distributed as a PK-Sim snapshot rather than a ready `.pkml`. On the currently verified macOS OSP runtime, snapshot conversion is externally blocked: the supported snapshot-run path refuses Darwin and the lower-level project-loading path was empirically observed to segfault. A reproducible Windows/Linux conversion procedure is stored in [`scripts/convert_midazolam_snapshot.R`](../scripts/convert_midazolam_snapshot.R) and is ready to run.
 
 No second-model capability is claimed until that converted model is inspected, registered, and live-proven through the existing generic path.
 
@@ -65,7 +60,7 @@ OpenTrials has an observed-evidence model, strict trial/study compatibility chec
 
 The bundled Vergin observations are correctly treated as calibration evidence, not validation evidence. The independently sourced Laskin candidate cannot be represented honestly from the available record because dosing is weight-normalized without recoverable subject weight, and no substitute open-licensed point-level aciclovir IV dataset was found in the documented search.
 
-See [`scripts/V0.8_VALIDATION_DATASET_SEARCH.md`](../scripts/V0.8_VALIDATION_DATASET_SEARCH.md) for the search record.
+The full search record is maintained internally.
 
 ## Important current limitations
 

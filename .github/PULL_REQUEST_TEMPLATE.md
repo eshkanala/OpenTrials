@@ -3,9 +3,8 @@
 ## Scope
 
 What's covered, and — just as important — what's deliberately **not**
-covered by this PR. This project's own history (`HANDOFF.md`) treats an
-honest scope boundary as more valuable than an overclaimed one; do the
-same here.
+covered by this PR. This project treats an honest scope boundary as more
+valuable than an overclaimed one; do the same here.
 
 ## Checks run
 
@@ -19,8 +18,8 @@ same here.
 
 ## Documentation
 
-- [ ] `HANDOFF.md` and/or `README.md` updated, if this changes what the
-      project can do.
+- [ ] `README.md` and/or the relevant `docs/` page updated, if this
+      changes what the project can do.
 - [ ] `docs/` updated, if this changes a researcher-facing workflow.
 
 ## Anything a reviewer should look at closely

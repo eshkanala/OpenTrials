@@ -44,7 +44,7 @@ OPENTRIALS_RUN_OSP_INTEGRATION=1 OPENTRIALS_OSP_R_LIBS_USER=/path/to/your/ospsui
   uv run pytest -m osp_integration
 ```
 
-See `HANDOFF.md`'s "external-runtime reminder" for the exact OSP/R/.NET
+See [`docs/quickstart.md`](docs/quickstart.md) for the exact OSP/R/.NET
 versions this project has been verified against. If you don't have a
 local OSP install, say so explicitly in your PR rather than skipping this
 silently — a maintainer can run it for you.
@@ -68,11 +68,11 @@ project-specific consequences that later milestones depended on.
   artifact's own verification already confirmed, or call an existing
   shared function (`analysis.descriptive.calculate_descriptive_summary`,
   etc.). See `reporting/build.py`'s own module docstring.
-- **Report honest findings, including blockers.** This project's own
-  `HANDOFF.md` documents multiple cases where a milestone was stopped
-  honestly rather than weakened to a false completion (see the v0.7-C and
-  v0.8-B/C entries) — do the same rather than working around a real gap
-  silently.
+- **Report honest findings, including blockers.** This project has
+  precedent for stopping a milestone honestly rather than weakening it to
+  a false completion — see the externally-blocked items in
+  [`docs/project-status.md`](docs/project-status.md) — do the same rather
+  than working around a real gap silently.
 - **No invented scientific values.** If a parameter, unit, or dose can't
   be verified against a real execution or a real source, it doesn't
   belong in committed code — leave it as an explicit `TODO`/gap instead
@@ -90,9 +90,9 @@ project-specific consequences that later milestones depended on.
 - PR descriptions should state what changed and why, and call out
   explicitly what was *not* covered if the change is scoped narrower than
   the issue that prompted it.
-- Update `HANDOFF.md` and/or `README.md` for anything that changes what
-  the project can do — this project treats its handoff log as load-bearing
-  documentation, not an afterthought.
+- Update `README.md` and/or the relevant page under `docs/` for anything
+  that changes what the project can do — documentation is treated as
+  load-bearing, not an afterthought.
 
 ## Code of conduct
 

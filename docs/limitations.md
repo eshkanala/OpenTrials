@@ -5,9 +5,8 @@ clinical decision support, diagnostic conclusions, or patient-specific
 advice, and nothing it produces should be interpreted as a clinical or
 regulatory claim. Every result is a computational simulation.
 
-This page states what the project honestly does not yet do, rather than
-leaving it to be discovered by reading `HANDOFF.md`'s full dated history.
-See `HANDOFF.md` for the complete evidence behind each item below.
+This page states what the project honestly does not yet do, stated
+plainly rather than left to be discovered by using it.
 
 ## No independent scientific validation exists yet
 
@@ -27,8 +26,8 @@ rights-cleared human validation dataset) remains open:
   repositories found no independently-deposited, open-licensed, point-level
   aciclovir IV dataset to validate against instead.
 
-See `scripts/V0.8_VALIDATION_DATASET_SEARCH.md` for the full search
-record.
+See [`docs/project-status.md`](project-status.md) for a summary of that
+search.
 
 ## Only one model is registered
 

@@ -11,8 +11,8 @@ A clear description of the incorrect behavior.
 
 ## What you expected
 
-What should have happened instead, and (if relevant) which existing test,
-docs page, or `HANDOFF.md` entry led you to expect that.
+What should have happened instead, and (if relevant) which existing test
+or docs page led you to expect that.
 
 ## Steps to reproduce
 
