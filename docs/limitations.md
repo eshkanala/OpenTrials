@@ -57,6 +57,25 @@ running the conversion on Linux via a temporary GitHub Actions workflow
 rather than a manually-provisioned machine — see
 [`docs/project-status.md`](project-status.md) for that record.
 
+## Only macOS execution is fully verified
+
+OpenTrials has only ever executed a real simulation, end to end, on
+macOS (Apple Silicon). The runtime-configuration override system
+(`--rscript-path`/`--dotnet-root`/`R_LIBS_USER`, environment variables,
+or a `.opentrials.yaml` config file) is real and unit-tested, and a
+genuine clean-machine attempt on a fresh `ubuntu-24.04` runner —
+installation, `opentrials init`/`validate`, and a full real-OSP
+population generation, verification, and arm allocation — succeeded
+using only those documented overrides. Full simulation *execution* did
+not: `ospsuite`'s R-universe build compiled from source for that
+platform combination, and its own configure step could not locate
+`System.Data.SQLite.dll` at runtime — a documented upstream gap in
+`ospsuite`'s own source-install path (its own warning points to a
+`setup_dev()` step that requires a full source checkout, not available
+via a normal package install), not an OpenTrials defect. See
+[`docs/quickstart.md`](quickstart.md#prerequisites) for the exact
+finding. Windows has not been attempted at all.
+
 ## Repeated/multi-dose regimens are not supported
 
 `ospsuite`'s R API has no function to author or edit a dosing protocol —

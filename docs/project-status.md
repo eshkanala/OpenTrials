@@ -75,6 +75,7 @@ See [`limitations.md`](limitations.md) for the maintained list. The most importa
 - research and educational use only; no clinical decision support;
 - no independent human validation claim yet, for either registered model;
 - both registered models come from the same simulation engine (OSP) — no second engine has been integrated;
+- only macOS (Apple Silicon) execution is fully verified — see [`limitations.md`](limitations.md#only-macos-execution-is-fully-verified) for the Linux clean-install finding;
 - repeated/multi-dose protocol authoring is not supported by the current headless OSP toolchain;
 - some advanced workflows remain Python-API-only rather than exposed through the top-level `Project` SDK/CLI path;
 - persisted schemas currently use strict exact-version matching and have no migration toolchain yet.

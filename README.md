@@ -70,7 +70,7 @@ See [`docs/project-status.md`](docs/project-status.md) for current implementatio
 - the .NET runtime required by `ospsuite`
 - a compatible registered mechanistic model
 
-The current OSP integration has been live-verified on Apple Silicon macOS. Runtime paths are configurable for other environments, but those platforms have not yet received equivalent end-to-end verification.
+The current OSP integration has been live-verified end to end on Apple Silicon macOS. Runtime paths are configurable for other environments (see the Limitations section); a fresh-machine Linux attempt got through installation, population generation, and verification, but not full simulation execution, and Windows is untried.
 
 ### Install
 
@@ -239,6 +239,7 @@ Current limitations include:
 - no clinical or patient-specific use;
 - no independent human validation claim for either registered model;
 - two live-proven registered mechanistic models, both from the same simulation engine (OSP);
+- only macOS (Apple Silicon) execution is fully verified; Linux installs and gets substantially further but hits an upstream `ospsuite` packaging gap during simulation execution, and Windows is untried;
 - no arbitrary repeated/multi-dose protocol authoring through the current headless OSP R interface;
 - selected advanced workflows remain Python-API-only rather than exposed through the top-level `Project`/CLI interface;
 - persisted artifact schemas currently require exact version matches and do not yet have migration tooling.
@@ -255,6 +256,7 @@ See [`docs/limitations.md`](docs/limitations.md) for details.
 | [`docs/architecture.md`](docs/architecture.md) | Architecture, trust boundaries, artifacts, and versioning |
 | [`docs/limitations.md`](docs/limitations.md) | Scientific and engineering limitations |
 | [`docs/project-status.md`](docs/project-status.md) | Release status and outstanding work |
+| [`docs/macos-osp-snapshot-conversion.md`](docs/macos-osp-snapshot-conversion.md) | Converting a PK-Sim snapshot model when working on macOS |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide |
 
 ## Development
