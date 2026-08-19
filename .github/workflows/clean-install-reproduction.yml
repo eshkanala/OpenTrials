@@ -94,6 +94,8 @@ jobs:
           export LD_LIBRARY_PATH="${LIB_PATH}/ospsuite/lib/:${LD_LIBRARY_PATH}"
           uv run opentrials run examples/aciclovir_dose_comparison.yaml \
             --r-libs-user "${LIB_PATH}" \
+            --rscript-path "$(which Rscript)" \
+            --dotnet-root /usr/lib/dotnet \
             --verbose 2>&1 | tee run.log
 
       - name: Generate a report (README "Generate a report" step)
@@ -113,7 +115,9 @@ jobs:
           LIB_PATH=$(Rscript -e 'cat(.libPaths()[1])')
           export LD_LIBRARY_PATH="${LIB_PATH}/ospsuite/lib/:${LD_LIBRARY_PATH}"
           uv run opentrials model inspect "${{ steps.pkml.outputs.path }}" \
-            --r-libs-user "${LIB_PATH}"
+            --r-libs-user "${LIB_PATH}" \
+            --rscript-path "$(which Rscript)" \
+            --dotnet-root /usr/lib/dotnet
 
       - name: Development checks (CONTRIBUTING.md steps)
         run: |
