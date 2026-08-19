@@ -26,7 +26,14 @@ on:
 jobs:
   convert:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The third run proved the conversion itself works -- toolchain install
+    # succeeded, and 25 of 37 declared simulations (including the target,
+    # "po 10 mg (tablet)") had already been exported, well-formed, before
+    # hitting this budget. Raised from 30 to give the remaining ~12
+    # simulations plus the script's own verification/reporting code room
+    # to finish, rather than relying on an artifact the script itself never
+    # confirmed.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
