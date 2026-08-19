@@ -9,6 +9,7 @@ number it returns must already have come from a real, SDK-validated
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -683,4 +684,196 @@ def test_fork_experiment_raises_when_the_target_record_is_not_an_experiment(
             "aciclovir",
             output_path=str(tmp_path / "forked.yaml"),
             root=str(tmp_path / "registry"),
+        )
+
+
+# ================= Guided Model Onboarding (Studio v0.4) =================
+
+
+def test_start_model_draft_raises_when_r_libs_user_is_unresolved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("R_LIBS_USER", raising=False)
+    monkeypatch.setenv("OPENTRIALS_CONFIG", str(tmp_path / "does-not-exist.yaml"))
+
+    with pytest.raises(bridge.StudioError, match="unavailable"):
+        bridge.start_model_draft(str(tmp_path / "model.pkml"), model_id="osp.test.fake")
+
+
+def test_get_model_draft_raises_for_an_unknown_draft_id(tmp_path: Path) -> None:
+    with pytest.raises(bridge.StudioError):
+        bridge.get_model_draft("no-such-draft", root=str(tmp_path / "onboarding"))
+
+
+def _start_stub_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, model_id: str = "osp.test.fake"
+) -> dict[str, Any]:
+    """Create a draft directly through the SDK, bypassing ``bridge.start_model_draft``.
+
+    ``start_model_draft`` requires a resolvable ``r_libs_user`` (real OSP)
+    before it will even attempt inspection; the bridge-level behavior
+    under test here is everything *after* a draft exists, so the draft is
+    seeded the same way ``test_sdk_onboarding.py`` does -- a monkeypatched
+    ``inspect_model`` -- without going through the bridge's OSP gate.
+    """
+    from opentrials.sdk import onboarding as sdk_onboarding
+    from opentrials.sdk.model_onboarding import ModelInspectionReport
+
+    def fake_inspect_model(pkml_path: Path, **kwargs: Any) -> ModelInspectionReport:
+        return ModelInspectionReport(
+            pkml_path=Path(pkml_path),
+            pkml_sha256="sha256:" + "a" * 64,
+            name="Fake Model",
+            molecule_names=("Aciclovir",),
+            output_paths=("Organism|VenousBlood|Plasma|Aciclovir|Concentration",),
+            mutable_parameter_count=1,
+            population_support_detected=True,
+            ospsuite_version="12.0.0",
+            r_version="4.6.0",
+        )
+
+    monkeypatch.setattr(sdk_onboarding, "inspect_model", fake_inspect_model)
+    draft = sdk_onboarding.start_draft(
+        tmp_path / "fake.pkml", model_id=model_id, root=tmp_path / "onboarding"
+    )
+    return draft.model_dump(mode="json")
+
+
+def test_select_model_draft_capability_rejects_an_unknown_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    with pytest.raises(bridge.StudioError, match="Unknown onboarding slot"):
+        bridge.select_model_draft_capability(
+            draft["draft_id"], slot="not-a-real-slot", value={}, root=str(tmp_path / "onboarding")
+        )
+
+
+def test_select_model_draft_capability_rejects_an_invalid_evidence_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    with pytest.raises(bridge.StudioError):
+        bridge.select_model_draft_capability(
+            draft["draft_id"],
+            slot="compound",
+            value={"compound_id": "aciclovir", "engine_molecule_id": "Aciclovir"},
+            evidence_class="NOT_A_REAL_EVIDENCE_CLASS",
+            root=str(tmp_path / "onboarding"),
+        )
+
+
+def test_get_model_draft_checklist_reports_unmet_requirements_on_a_fresh_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    result = bridge.get_model_draft_checklist(draft["draft_id"], root=str(tmp_path / "onboarding"))
+    assert result["ok"] is False
+    assert any(c["status"] == "absent" for c in result["checks"])
+
+
+def test_register_model_from_draft_raises_when_the_checklist_is_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    with pytest.raises(bridge.StudioError, match="unmet requirement"):
+        bridge.register_model_from_draft(
+            draft["draft_id"],
+            draft_root=str(tmp_path / "onboarding"),
+            registry_root=str(tmp_path / "registry"),
+        )
+
+
+def test_register_model_from_draft_writes_real_registry_records_once_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from opentrials.sdk import onboarding as sdk_onboarding
+
+    onboarding_root = str(tmp_path / "onboarding")
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    draft_id = draft["draft_id"]
+
+    bridge.select_model_draft_capability(
+        draft_id,
+        slot="compound",
+        value={"compound_id": "aciclovir", "engine_molecule_id": "Aciclovir"},
+        evidence_class="CURATED",
+        root=onboarding_root,
+    )
+    bridge.select_model_draft_capability(
+        draft_id,
+        slot="administration",
+        value={
+            "target_id": "iv-target",
+            "route": "INTRAVENOUS",
+            "administration_container_path": "Events|IV|",
+            "dose_parameter_path": "Events|IV|Dose",
+            "dose_unit": "mg",
+            "administration_time_parameter_path": "Events|IV|Start time",
+            "administration_time_unit": "min",
+            "supported_doses": [250.0],
+            "supported_dose_unit": "mg",
+        },
+        evidence_class="ASSUMED",
+        root=onboarding_root,
+    )
+    bridge.select_model_draft_capability(
+        draft_id,
+        slot="output",
+        value={
+            "output_id": "plasma",
+            "parameter_path": "Organism|VenousBlood|Plasma|Aciclovir|Concentration",
+            "analyte": "aciclovir",
+            "matrix": "plasma",
+            "fraction": "total",
+            "measurement": "concentration",
+            "unit": "mg/l",
+            "time_unit": "h",
+        },
+        evidence_class="ASSUMED",
+        root=onboarding_root,
+    )
+    bridge.select_model_draft_capability(
+        draft_id, slot="applicability", value={"species": ["human"]}, evidence_class="ASSUMED",
+        root=onboarding_root,
+    )
+    bridge.set_model_draft_metadata(
+        draft_id, model_version="1.0.0", license="CC-BY-4.0", root=onboarding_root
+    )
+    bridge.set_model_draft_unsupported_capabilities(draft_id, items=[], root=onboarding_root)
+
+    # The live run itself needs real OSP; recording its outcome does not --
+    # this calls the same sdk function `record_model_draft_verification`
+    # would call after confirming a real completed run.
+    sdk_onboarding.record_verification_run(
+        draft_id, run_id="OTR-population-fake123", endpoint_types=("AUC",), root=onboarding_root
+    )
+
+    result = bridge.register_model_from_draft(
+        draft_id, draft_root=onboarding_root, registry_root=str(tmp_path / "registry")
+    )
+
+    assert result["model"]["kind"] == "MODEL"
+    assert result["verification"]["kind"] == "MODEL_VERIFICATION"
+
+
+def test_start_model_draft_verification_run_raises_when_not_yet_buildable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    with pytest.raises(bridge.StudioError, match="Cannot start a verification run"):
+        bridge.start_model_draft_verification_run(
+            draft["draft_id"],
+            path=str(tmp_path / "project.yaml"),
+            root=str(tmp_path / "onboarding"),
+        )
+
+
+def test_record_model_draft_verification_raises_for_an_unknown_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    draft = _start_stub_draft(tmp_path, monkeypatch)
+    with pytest.raises(bridge.StudioError, match="has not completed successfully"):
+        bridge.record_model_draft_verification(
+            draft["draft_id"], run_id="no-such-run", root=str(tmp_path / "onboarding")
         )

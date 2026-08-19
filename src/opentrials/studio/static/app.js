@@ -1557,6 +1557,12 @@
       '<div class="field"><span class="flabel">Model ID</span><input class="finput" id="scaffoldModelId" type="text" placeholder="osp.compound.route-variant" /></div>' +
       '<span class="btn btn-primary raised" id="scaffoldBtn" style="cursor:pointer;">Generate scaffold</span>' +
       '<div id="scaffoldResult" style="margin-top:8px;"></div>' +
+      "</div></div>" +
+      '<div class="panel"><div class="phead">Guided model onboarding</div><div class="pbody">' +
+      '<p style="font-size:10.5px;color:var(--ink-faint);margin:0 0 8px;">Turns this discovery into a reviewed, evidence-bearing, live-verified model registration &mdash; no capability is registered until a real execution proves it works.</p>' +
+      '<div class="field"><span class="flabel">Model ID</span><input class="finput" id="onboardModelId" type="text" placeholder="osp.compound.route-variant" /></div>' +
+      '<span class="btn btn-primary raised" id="startDraftBtn" style="cursor:pointer;">Start guided onboarding</span>' +
+      '<div id="onboardingPanel" style="margin-top:10px;"></div>' +
       "</div></div>";
 
     document.getElementById("registryMatchBtn").addEventListener("click", function () {
@@ -1598,6 +1604,304 @@
           scaffoldResult.innerHTML = '<span style="color:var(--absent)">' + escapeHtml(err.message) + "</span>";
         });
     });
+
+    document.getElementById("startDraftBtn").addEventListener("click", function () {
+      var modelId = document.getElementById("onboardModelId").value.trim();
+      if (!modelId) return;
+      var panel = document.getElementById("onboardingPanel");
+      panel.innerHTML = '<div class="empty-state">Starting draft&hellip;</div>';
+      fetch("/api/onboarding/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pkml_path: pkmlPath, model_id: modelId }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not start draft"); });
+          return r.json();
+        })
+        .then(function (draft) { renderDraftWorkspace(panel, draft.draft_id); })
+        .catch(function (err) {
+          panel.innerHTML = '<div class="error-banner"><strong>Could not start onboarding.</strong><br />' + escapeHtml(err.message) + "</div>";
+        });
+    });
+  }
+
+  // ================= Guided Model Onboarding (Studio v0.4) =================
+
+  var SLOT_LABELS = {
+    compound: "Compound identity",
+    administration: "Administration route",
+    output: "Output mapping",
+    applicability: "Population applicability",
+  };
+
+  function statusBadgeClass(status) {
+    if (status === "VERIFIED") return "evq-high";
+    if (status === "MAPPED") return "evq-mod";
+    if (status === "UNSUPPORTED") return "evq-mod";
+    if (status === "REQUIRES_REVIEW") return "evq-low";
+    return "evq-low";
+  }
+
+  function renderDraftWorkspace(panel, draftId) {
+    panel.innerHTML =
+      '<div class="panel"><div class="phead">Draft ' + escapeHtml(draftId.slice(0, 8)) + '&hellip;</div><div class="pbody" id="draftBody-' + draftId + '"></div></div>' +
+      '<div class="panel"><div class="phead">Validation checklist</div><div class="pbody" id="draftChecklist-' + draftId + '"></div></div>';
+    refreshDraft(draftId);
+  }
+
+  function refreshDraft(draftId) {
+    fetch("/api/onboarding/draft/" + draftId)
+      .then(function (r) { return r.json(); })
+      .then(function (draft) {
+        renderDraftBody(draft);
+        return fetch("/api/onboarding/draft/" + draftId + "/checklist");
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (checklist) { renderDraftChecklist(draftId, checklist); });
+  }
+
+  function renderDraftChecklist(draftId, checklist) {
+    var body = document.getElementById("draftChecklist-" + draftId);
+    if (!body) return;
+    var rungs = checklist.checks.map(function (c) {
+      return (
+        '<div class="rung"><span class="sq ' + c.status + '"></span>' +
+        '<span class="txt"><strong>' + escapeHtml(c.label) + "</strong><span>" + escapeHtml(c.detail) + "</span></span></div>"
+      );
+    }).join("");
+    body.innerHTML =
+      '<div class="status-ladder">' + rungs + "</div>" +
+      '<span class="btn btn-primary raised" id="registerBtn-' + draftId + '" style="cursor:pointer;margin-top:10px;" ' +
+      (checklist.ok ? "" : 'disabled aria-disabled="true"') + ">Register model</span>" +
+      '<div id="registerResult-' + draftId + '" style="margin-top:8px;"></div>';
+
+    var registerBtn = document.getElementById("registerBtn-" + draftId);
+    if (checklist.ok) {
+      registerBtn.addEventListener("click", function () {
+        var out = document.getElementById("registerResult-" + draftId);
+        out.innerHTML = "Registering…";
+        fetch("/api/onboarding/draft/" + draftId + "/register", { method: "POST" })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "registration failed"); });
+            return r.json();
+          })
+          .then(function (result) {
+            out.innerHTML =
+              '<div class="hash-line"><span class="k">Model registered</span><span class="v mono">' + escapeHtml(result.model.record_id) + "</span></div>" +
+              '<div class="hash-line"><span class="k">Verification recorded</span><span class="v mono">' + escapeHtml(result.verification.record_id) + "</span></div>";
+          })
+          .catch(function (err) {
+            out.innerHTML = '<div class="error-banner"><strong>Registration failed.</strong><br />' + escapeHtml(err.message) + "</div>";
+          });
+      });
+    } else {
+      registerBtn.style.opacity = "0.5";
+      registerBtn.style.cursor = "default";
+    }
+  }
+
+  function slotSummaryHtml(draftId, slot, selection) {
+    var status = selection ? selection.status : "DISCOVERED";
+    var summary = selection ? JSON.stringify(selection.value) : "not yet mapped";
+    return (
+      '<div class="ec-head">' +
+      '<span class="value">' + escapeHtml(SLOT_LABELS[slot]) + "</span>" +
+      '<span class="evq ' + statusBadgeClass(status) + '">' + escapeHtml(status) + "</span>" +
+      "</div>" +
+      '<div class="ec-body mono" style="word-break:break-all;">' + escapeHtml(summary) +
+      (selection && selection.evidence_class ? " &middot; evidence: " + escapeHtml(selection.evidence_class) : "") +
+      (selection && selection.source_record_id ? " &middot; source: " + escapeHtml(selection.source_record_id) : "") +
+      "</div>"
+    );
+  }
+
+  function slotFormFields(slot) {
+    if (slot === "compound") {
+      return [["compound_id", "Compound ID"], ["engine_molecule_id", "Engine molecule name"]];
+    }
+    if (slot === "administration") {
+      return [
+        ["target_id", "Target ID"], ["route", "Route (e.g. INTRAVENOUS)"],
+        ["administration_container_path", "Container path"], ["dose_parameter_path", "Dose parameter path"],
+        ["dose_unit", "Dose unit"], ["administration_time_parameter_path", "Admin time parameter path"],
+        ["administration_time_unit", "Admin time unit"], ["fixed_administration_time_min", "Fixed admin time (min)"],
+        ["infusion_duration_parameter_path", "Infusion duration parameter path (optional)"],
+        ["infusion_duration_unit", "Infusion duration unit (optional)"],
+        ["fixed_infusion_duration_min", "Fixed infusion duration (min, optional)"],
+      ];
+    }
+    if (slot === "output") {
+      return [
+        ["output_id", "Output ID"], ["parameter_path", "Parameter path"], ["analyte", "Analyte"],
+        ["matrix", "Matrix"], ["fraction", "Fraction"], ["measurement", "Measurement"],
+        ["unit", "Unit"], ["time_unit", "Time unit"],
+      ];
+    }
+    return [["species", "Species (comma-separated, e.g. human)"]];
+  }
+
+  function slotFormHtml(draftId, slot) {
+    var fields = slotFormFields(slot).map(function (f) {
+      return '<div class="field"><span class="flabel">' + escapeHtml(f[1]) + '</span><input class="finput slotfield" data-key="' + f[0] + '" type="text" /></div>';
+    }).join("");
+    return (
+      '<div class="panel" style="margin-top:6px;"><div class="phead">Map: ' + escapeHtml(SLOT_LABELS[slot]) + '</div><div class="pbody">' +
+      fields +
+      '<div class="field"><span class="flabel">Evidence class</span><select class="fselect" id="evidenceClass-' + slot + '-' + draftId + '">' +
+      ["MEASURED", "CURATED", "DERIVED", "FITTED", "MODEL_INHERITED", "SIMULATED", "ASSUMED"].map(function (e) {
+        return '<option value="' + e + '"' + (e === "ASSUMED" ? " selected" : "") + ">" + e + "</option>";
+      }).join("") + "</select></div>" +
+      '<div class="field"><span class="flabel">Context / rationale</span><input class="finput" id="context-' + slot + '-' + draftId + '" type="text" /></div>' +
+      '<span class="btn btn-primary raised" id="saveSlot-' + slot + '-' + draftId + '" style="cursor:pointer;">Save selection</span>' +
+      '<div id="slotResult-' + slot + '-' + draftId + '" style="margin-top:6px;"></div>' +
+      "</div></div>"
+    );
+  }
+
+  function wireSlotForm(draftId, slot) {
+    var btn = document.getElementById("saveSlot-" + slot + "-" + draftId);
+    btn.addEventListener("click", function () {
+      var value = {};
+      document.querySelectorAll('#slotForm-' + slot + '-' + draftId + ' .slotfield').forEach(function (input) {
+        var key = input.dataset.key;
+        var raw = input.value.trim();
+        if (!raw) return;
+        if (key === "species") { value[key] = raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean); return; }
+        if (key === "fixed_administration_time_min" || key === "fixed_infusion_duration_min") { value[key] = parseFloat(raw); return; }
+        value[key] = raw;
+      });
+      var evidenceClass = document.getElementById("evidenceClass-" + slot + "-" + draftId).value;
+      var context = document.getElementById("context-" + slot + "-" + draftId).value.trim();
+      var out = document.getElementById("slotResult-" + slot + "-" + draftId);
+      out.innerHTML = "Saving…";
+      fetch("/api/onboarding/draft/" + draftId + "/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot: slot, value: value, evidence_class: evidenceClass, context: context || null }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not save selection"); });
+          return r.json();
+        })
+        .then(function () { refreshDraft(draftId); })
+        .catch(function (err) {
+          out.innerHTML = '<div class="error-banner"><strong>Could not save.</strong><br />' + escapeHtml(err.message) + "</div>";
+        });
+    });
+  }
+
+  function renderDraftBody(draft) {
+    var draftId = draft.draft_id;
+    var body = document.getElementById("draftBody-" + draftId);
+    if (!body) return;
+
+    var slots = ["compound", "administration", "output", "applicability"];
+    var slotSections = slots.map(function (slot) {
+      var selection = draft.selections[slot];
+      return (
+        '<div class="evidence-choice">' + slotSummaryHtml(draftId, slot, selection) + "</div>" +
+        '<div id="slotForm-' + slot + '-' + draftId + '">' + slotFormHtml(draftId, slot) + "</div>"
+      );
+    }).join("");
+
+    body.innerHTML =
+      '<div class="field"><span class="flabel">Model version</span><input class="finput" id="modelVersion-' + draftId + '" value="' + escapeHtml(draft.model_version || "") + '" type="text" placeholder="1.0.0" /></div>' +
+      '<div class="field"><span class="flabel">License</span><input class="finput" id="modelLicense-' + draftId + '" value="' + escapeHtml(draft.license || "") + '" type="text" placeholder="CC-BY-4.0" /></div>' +
+      '<span class="btn btn-primary raised" id="saveMetadataBtn-' + draftId + '" style="cursor:pointer;">Save metadata</span>' +
+      '<div id="metadataResult-' + draftId + '" style="margin-top:6px;margin-bottom:12px;"></div>' +
+      slotSections +
+      '<div class="panel" style="margin-top:6px;"><div class="phead">Unsupported capabilities</div><div class="pbody">' +
+      '<p style="font-size:10.5px;color:var(--ink-faint);margin:0 0 8px;">' + (draft.unsupported_reviewed ? escapeHtml(draft.unsupported_capabilities.length) + " declared." : "Not yet reviewed.") + "</p>" +
+      '<span class="btn raised" id="markNoUnsupportedBtn-' + draftId + '" style="cursor:pointer;">Mark reviewed &mdash; none to declare</span>' +
+      "</div></div>" +
+      '<div class="panel" style="margin-top:6px;"><div class="phead">Live verification run</div><div class="pbody">' +
+      '<div class="field"><span class="flabel">Project path (model_id must match this draft)</span><input class="finput" id="verifyPath-' + draftId + '" type="text" placeholder="/path/to/project.yaml" /></div>' +
+      '<span class="btn btn-primary raised" id="verifyRunBtn-' + draftId + '" style="cursor:pointer;">Run live verification</span>' +
+      '<div id="verifyResult-' + draftId + '" style="margin-top:8px;"></div>' +
+      "</div></div>";
+
+    document.getElementById("saveMetadataBtn-" + draftId).addEventListener("click", function () {
+      var modelVersion = document.getElementById("modelVersion-" + draftId).value.trim();
+      var license = document.getElementById("modelLicense-" + draftId).value.trim();
+      var out = document.getElementById("metadataResult-" + draftId);
+      if (!modelVersion || !license) { out.innerHTML = '<span style="color:var(--absent)">Both fields are required.</span>'; return; }
+      out.innerHTML = "Saving…";
+      fetch("/api/onboarding/draft/" + draftId + "/metadata", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_version: modelVersion, license: license }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not save"); });
+          return r.json();
+        })
+        .then(function () { refreshDraft(draftId); })
+        .catch(function (err) { out.innerHTML = '<span style="color:var(--absent)">' + escapeHtml(err.message) + "</span>"; });
+    });
+
+    document.getElementById("markNoUnsupportedBtn-" + draftId).addEventListener("click", function () {
+      fetch("/api/onboarding/draft/" + draftId + "/unsupported", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [] }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function () { refreshDraft(draftId); });
+    });
+
+    slots.forEach(function (slot) { wireSlotForm(draftId, slot); });
+
+    document.getElementById("verifyRunBtn-" + draftId).addEventListener("click", function () {
+      var path = document.getElementById("verifyPath-" + draftId).value.trim();
+      if (!path) return;
+      var out = document.getElementById("verifyResult-" + draftId);
+      out.innerHTML = "Starting run…";
+      fetch("/api/onboarding/draft/" + draftId + "/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: path }),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not start verification run"); });
+          return r.json();
+        })
+        .then(function (res) { pollVerificationRun(draftId, res.run_id, out); })
+        .catch(function (err) {
+          out.innerHTML = '<div class="error-banner"><strong>Could not start run.</strong><br />' + escapeHtml(err.message) + "</div>";
+        });
+    });
+  }
+
+  function pollVerificationRun(draftId, runId, out) {
+    out.innerHTML = '<div class="empty-state">Running&hellip; (run ' + escapeHtml(runId.slice(0, 8)) + "…)</div>";
+    fetch("/api/run/" + runId)
+      .then(function (r) { return r.json(); })
+      .then(function (run) {
+        if (run.status === "running") { setTimeout(function () { pollVerificationRun(draftId, runId, out); }, 2000); return; }
+        if (run.status === "failed") {
+          out.innerHTML = '<div class="error-banner"><strong>Verification run failed.</strong><br />' + escapeHtml(run.error || "") + "</div>";
+          return;
+        }
+        out.innerHTML =
+          '<pre style="font-size:10.5px;white-space:pre-wrap;">' + escapeHtml(run.summary || "") + "</pre>" +
+          '<span class="btn btn-primary raised" id="recordVerifyBtn-' + draftId + '" style="cursor:pointer;">Record this verification</span>';
+        document.getElementById("recordVerifyBtn-" + draftId).addEventListener("click", function () {
+          fetch("/api/onboarding/draft/" + draftId + "/verify/record", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ run_id: runId }),
+          })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "could not record verification"); });
+              return r.json();
+            })
+            .then(function () { refreshDraft(draftId); })
+            .catch(function (err) {
+              out.innerHTML += '<div class="error-banner">' + escapeHtml(err.message) + "</div>";
+            });
+        });
+      });
   }
 
   // ================= Validation rendering =================

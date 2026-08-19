@@ -43,6 +43,7 @@ from opentrials.config.runtime import resolve_osp_runtime
 from opentrials.core.serialization import sha256
 from opentrials.events import Event
 from opentrials.evidence.connector import IneligibleEvidenceCandidateError, run_connector
+from opentrials.models.registry import DuplicateModelCapabilityError, ModelCapabilityRegistry
 from opentrials.orchestration.physiology_trial_execution import PhysiologyStateDeclaration
 from opentrials.physiology.overrides import PhysiologicalStateOverride
 from opentrials.registry import (
@@ -60,6 +61,7 @@ from opentrials.reporting import (
     render_markdown,
 )
 from opentrials.reporting.data import ReportData
+from opentrials.sdk import onboarding as sdk_onboarding
 from opentrials.sdk.cohort import compare_cohorts, define_and_persist_cohort
 from opentrials.sdk.evidence import default_evidence_connectors, ingest_and_persist
 from opentrials.sdk.model_onboarding import (
@@ -388,11 +390,20 @@ class _RunState:
 _RUNS: dict[str, _RunState] = {}
 
 
-def start_run(path: str, *, output_root: str = "runs") -> dict[str, Any]:
-    """Start a real SDK execution on a background thread; return a run_id to poll."""
+def start_run(
+    path: str, *, output_root: str = "runs", registry: ModelCapabilityRegistry | None = None
+) -> dict[str, Any]:
+    """Start a real SDK execution on a background thread; return a run_id to poll.
+
+    ``registry`` defaults to the SDK's normal default registry; guided
+    onboarding's verification-run step passes a registry containing only
+    an in-progress draft profile instead, so a not-yet-registered model
+    can still be executed for real without special-casing execution
+    itself around onboarding.
+    """
     resolved_path = Path(path)
     try:
-        project = Project.load(resolved_path)
+        project = Project.load(resolved_path, registry=registry)
     except ProjectConfigurationError as error:
         raise StudioError(str(error)) from error
 
@@ -850,6 +861,197 @@ def create_model_scaffold(
 
 def _slug(name: str) -> str:
     return "".join(c.lower() if c.isalnum() else "_" for c in name).strip("_")
+
+
+# ================= Guided Model Onboarding (Studio v0.4) =================
+#
+# Turns a PKML discovery into a reviewed, provenance-bearing, live-verified
+# model registration. Every function here is a thin translation over
+# ``sdk.onboarding`` -- the checklist/registration gate logic lives there,
+# never here, so it cannot be bypassed by a client that only calls some of
+# these endpoints.
+
+
+def start_model_draft(pkml_path: str, *, model_id: str, root: str | None = None) -> dict[str, Any]:
+    """Inspect a PKML file once and start a fresh onboarding draft for it."""
+    runtime = resolve_osp_runtime()
+    if runtime.r_libs_user is None:
+        raise StudioError(
+            "Model inspection unavailable: set R_LIBS_USER, or r_libs_user in a config "
+            "file, for the local ospsuite R library."
+        )
+    try:
+        draft = sdk_onboarding.start_draft(
+            pkml_path,
+            model_id=model_id,
+            r_libs_user=runtime.r_libs_user,
+            rscript_path=runtime.rscript_path,
+            dotnet_root=runtime.dotnet_root,
+            root=root,
+        )
+    except (OSError, ValueError, RuntimeError) as error:
+        raise StudioError(f"Could not start onboarding draft: {error}") from error
+    return draft.model_dump(mode="json")
+
+
+def list_model_drafts(*, root: str | None = None) -> list[dict[str, Any]]:
+    return [draft.model_dump(mode="json") for draft in sdk_onboarding.list_drafts(root=root)]
+
+
+def get_model_draft(draft_id: str, *, root: str | None = None) -> dict[str, Any]:
+    try:
+        draft = sdk_onboarding.load_draft(draft_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return draft.model_dump(mode="json")
+
+
+def set_model_draft_metadata(
+    draft_id: str, *, model_version: str, license: str, root: str | None = None
+) -> dict[str, Any]:
+    try:
+        draft = sdk_onboarding.set_model_metadata(
+            draft_id, model_version=model_version, license=license, root=root
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return draft.model_dump(mode="json")
+
+
+def select_model_draft_capability(
+    draft_id: str,
+    *,
+    slot: str,
+    value: dict[str, Any],
+    source_record_id: str | None = None,
+    evidence_class: str | None = None,
+    unit: str | None = None,
+    context: str | None = None,
+    provenance_ids: tuple[str, ...] = (),
+    root: str | None = None,
+) -> dict[str, Any]:
+    """Record one researcher decision for one onboarding slot.
+
+    ``evidence_class`` is accepted as a plain string at this JSON boundary
+    (a candidate picked from a Registry match, or hand-typed by the
+    researcher) and converted to the real enum here -- an invalid value
+    fails loudly rather than being silently accepted.
+    """
+    try:
+        resolved_evidence_class = EvidenceClass(evidence_class) if evidence_class else None
+        draft = sdk_onboarding.select_capability(
+            draft_id,
+            slot=slot,
+            value=value,
+            source_record_id=source_record_id,
+            evidence_class=resolved_evidence_class,
+            unit=unit,
+            context=context,
+            provenance_ids=provenance_ids,
+            root=root,
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return draft.model_dump(mode="json")
+
+
+def set_model_draft_unsupported_capabilities(
+    draft_id: str, *, items: list[dict[str, str]], root: str | None = None
+) -> dict[str, Any]:
+    try:
+        draft = sdk_onboarding.set_unsupported_capabilities(draft_id, items=items, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return draft.model_dump(mode="json")
+
+
+def get_model_draft_checklist(draft_id: str, *, root: str | None = None) -> dict[str, Any]:
+    try:
+        draft = sdk_onboarding.load_draft(draft_id, root=root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return sdk_onboarding.checklist(draft)
+
+
+def start_model_draft_verification_run(
+    draft_id: str, *, path: str, output_root: str = "runs", root: str | None = None
+) -> dict[str, Any]:
+    """Execute a real trial against the draft's current (unregistered) profile.
+
+    Builds a fresh, private ``ModelCapabilityRegistry`` containing only
+    this one draft profile, so the researcher's project (whose
+    ``model_id`` must match the draft's) executes for real without the
+    draft ever needing to be a fully registered model first -- and
+    without silently colliding with an already-registered model that
+    happens to share the same id.
+    """
+    try:
+        draft = sdk_onboarding.load_draft(draft_id, root=root)
+        profile = sdk_onboarding.build_profile_from_draft(draft)
+    except ValueError as error:
+        raise StudioError(f"Cannot start a verification run yet: {error}") from error
+
+    registry = default_model_registry()
+    try:
+        registry.register(profile)
+    except DuplicateModelCapabilityError as error:
+        raise StudioError(str(error)) from error
+
+    result = start_run(path, output_root=output_root, registry=registry)
+    result["draft_id"] = draft_id
+    return result
+
+
+def record_model_draft_verification(
+    draft_id: str, *, run_id: str, root: str | None = None
+) -> dict[str, Any]:
+    """Promote a draft's MAPPED selections to VERIFIED from one real completed run."""
+    state = _RUNS.get(run_id)
+    if state is None or state.run_object is None or state.status != "completed":
+        raise StudioError(f"Run {run_id!r} has not completed successfully.")
+    try:
+        draft = sdk_onboarding.load_draft(draft_id, root=root)
+        profile = sdk_onboarding.build_profile_from_draft(draft)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    if state.run_object.model.model_id != profile.package.manifest.id:
+        raise StudioError(
+            f"Run {run_id!r} was executed against {state.run_object.model.model_id!r}, "
+            f"not this draft's model {profile.package.manifest.id!r}."
+        )
+    endpoint_types = sorted({endpoint.endpoint_type for endpoint in state.run_object.endpoints})
+    try:
+        updated = sdk_onboarding.record_verification_run(
+            draft_id, run_id=run_id, endpoint_types=endpoint_types, root=root
+        )
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return updated.model_dump(mode="json")
+
+
+def register_model_from_draft(
+    draft_id: str, *, draft_root: str | None = None, registry_root: str | None = None
+) -> dict[str, Any]:
+    """Register the draft's MODEL + MODEL_VERIFICATION records -- gated, no bypass.
+
+    ``draft_root`` (where onboarding drafts live) and ``registry_root``
+    (where the Registry itself lives) are deliberately separate
+    parameters, even though both default to sibling XDG paths -- they are
+    two different stores, and conflating them into one ``root`` would
+    silently point draft lookups at the registry directory or vice versa.
+    ``sdk.onboarding.register_model`` re-checks the checklist itself, so
+    a client cannot register a model by skipping a step; this function
+    only translates its result and errors.
+    """
+    backend = default_registry_backend(registry_root)
+    try:
+        result = sdk_onboarding.register_model(draft_id, backend=backend, root=draft_root)
+    except ValueError as error:
+        raise StudioError(str(error)) from error
+    return {
+        "model": _manifest_summary(result["model"]),
+        "verification": _manifest_summary(result["verification"]),
+    }
 
 
 # ================= Evidence Browser =================

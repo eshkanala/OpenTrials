@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import UTC, date, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +43,8 @@ def _normalize(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, Path):
+        return str(value)
     if isinstance(value, dict):
         return {str(key): _normalize(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

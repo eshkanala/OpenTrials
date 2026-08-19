@@ -24,6 +24,7 @@ from opentrials.registry import (
     EvidenceClass,
     ExperimentRecord,
     FilesystemRegistryBackend,
+    ModelVerificationRecord,
     ParameterEvidenceRecord,
     RegistryError,
     RegistryRecordKind,
@@ -209,6 +210,46 @@ def test_experiment_record_sourced_from_a_run_must_be_marked_simulated(
         evidence_class=EvidenceClass.SIMULATED,
         license="CC-BY-4.0",
         source=RegistrySource(kind="experiment_run", identifier="OTR-population-abc123"),
+    )
+    assert manifest.evidence_class == EvidenceClass.SIMULATED
+
+
+def _demo_verification_record() -> ModelVerificationRecord:
+    return ModelVerificationRecord(
+        model_id="osp.aciclovir.vergin-1995-iv",
+        profile_sha256=sha256(ACICLOVIR_IV_CAPABILITY_PROFILE),
+        pkml_sha256="sha256:" + "a" * 64,
+        run_id="OTR-population-abc123",
+        endpoint_types=("AUC",),
+        opentrials_version="1.0.0",
+        ospsuite_version="12.0.0",
+        r_version="4.6.0",
+    )
+
+
+def test_model_verification_record_sourced_from_a_run_must_be_marked_simulated(
+    backend: FilesystemRegistryBackend,
+) -> None:
+    record = _demo_verification_record()
+    with pytest.raises(Exception, match="SIMULATED"):
+        backend.put(
+            RegistryRecordKind.MODEL_VERIFICATION,
+            record,
+            logical_id="osp.aciclovir.vergin-1995-iv-verification",
+            evidence_class=EvidenceClass.MEASURED,  # wrong -- a real execution is SIMULATED
+            license="CC-BY-4.0",
+            source=RegistrySource(
+                kind="model_verification_run", identifier="OTR-population-abc123"
+            ),
+        )
+
+    manifest = backend.put(
+        RegistryRecordKind.MODEL_VERIFICATION,
+        record,
+        logical_id="osp.aciclovir.vergin-1995-iv-verification",
+        evidence_class=EvidenceClass.SIMULATED,
+        license="CC-BY-4.0",
+        source=RegistrySource(kind="model_verification_run", identifier="OTR-population-abc123"),
     )
     assert manifest.evidence_class == EvidenceClass.SIMULATED
 

@@ -88,6 +88,39 @@ class ForkExperimentRequest(BaseModel):
     output_path: str
 
 
+class StartDraftRequest(BaseModel):
+    pkml_path: str
+    model_id: str
+
+
+class DraftMetadataRequest(BaseModel):
+    model_version: str
+    license: str
+
+
+class SelectCapabilityRequest(BaseModel):
+    slot: str
+    value: dict[str, Any]
+    source_record_id: str | None = None
+    evidence_class: str | None = None
+    unit: str | None = None
+    context: str | None = None
+    provenance_ids: tuple[str, ...] = ()
+
+
+class UnsupportedCapabilitiesRequest(BaseModel):
+    items: list[dict[str, str]]
+
+
+class DraftVerificationRunRequest(BaseModel):
+    path: str
+    output_root: str = "runs"
+
+
+class RecordVerificationRequest(BaseModel):
+    run_id: str
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_ROOT / "index.html")
@@ -361,5 +394,100 @@ def post_register_experiment(run_id: str, request: RegisterExperimentRequest) ->
 def post_fork_experiment(logical_id: str, request: ForkExperimentRequest) -> dict[str, Any]:
     try:
         return bridge.fork_experiment(logical_id, output_path=request.output_path)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+# ================= Guided Model Onboarding (Studio v0.4) =================
+
+
+@app.post("/api/onboarding/draft")
+def post_start_draft(request: StartDraftRequest) -> dict[str, Any]:
+    try:
+        return bridge.start_model_draft(request.pkml_path, model_id=request.model_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/onboarding/drafts")
+def get_drafts() -> list[dict[str, Any]]:
+    return bridge.list_model_drafts()
+
+
+@app.get("/api/onboarding/draft/{draft_id}")
+def get_draft(draft_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_model_draft(draft_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/onboarding/draft/{draft_id}/metadata")
+def post_draft_metadata(draft_id: str, request: DraftMetadataRequest) -> dict[str, Any]:
+    try:
+        return bridge.set_model_draft_metadata(
+            draft_id, model_version=request.model_version, license=request.license
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/onboarding/draft/{draft_id}/select")
+def post_draft_select(draft_id: str, request: SelectCapabilityRequest) -> dict[str, Any]:
+    try:
+        return bridge.select_model_draft_capability(
+            draft_id,
+            slot=request.slot,
+            value=request.value,
+            source_record_id=request.source_record_id,
+            evidence_class=request.evidence_class,
+            unit=request.unit,
+            context=request.context,
+            provenance_ids=request.provenance_ids,
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/onboarding/draft/{draft_id}/unsupported")
+def post_draft_unsupported(
+    draft_id: str, request: UnsupportedCapabilitiesRequest
+) -> dict[str, Any]:
+    try:
+        return bridge.set_model_draft_unsupported_capabilities(draft_id, items=request.items)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/onboarding/draft/{draft_id}/checklist")
+def get_draft_checklist(draft_id: str) -> dict[str, Any]:
+    try:
+        return bridge.get_model_draft_checklist(draft_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/onboarding/draft/{draft_id}/verify")
+def post_draft_verify(draft_id: str, request: DraftVerificationRunRequest) -> dict[str, Any]:
+    try:
+        return bridge.start_model_draft_verification_run(
+            draft_id, path=request.path, output_root=request.output_root
+        )
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/onboarding/draft/{draft_id}/verify/record")
+def post_draft_verify_record(draft_id: str, request: RecordVerificationRequest) -> dict[str, Any]:
+    try:
+        return bridge.record_model_draft_verification(draft_id, run_id=request.run_id)
+    except bridge.StudioError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/onboarding/draft/{draft_id}/register")
+def post_draft_register(draft_id: str) -> dict[str, Any]:
+    try:
+        return bridge.register_model_from_draft(draft_id)
     except bridge.StudioError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

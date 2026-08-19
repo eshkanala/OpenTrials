@@ -13,13 +13,18 @@ exactly the ``SchemaDocument``/``sha256()`` convention every other
 persisted artifact in this project already follows (see
 ``core.serialization``).
 
-Two record kinds are genuinely new to this project and have no existing
+Three record kinds are genuinely new to this project and have no existing
 type to wrap: ``PARAMETER_EVIDENCE`` (one registered parameter value with
-its own evidence trail, distinct from a full dataset) and ``EXPERIMENT``
+its own evidence trail, distinct from a full dataset), ``EXPERIMENT``
 (a registered OpenTrials trial protocol, optionally linked to a real
 execution -- simulated outcomes are recorded with ``evidence_class =
 SIMULATED``, never promoted to ``MEASURED``/``CURATED``, enforced by
-``RegistryEntryManifest``'s own validator, not left to caller discipline).
+``RegistryEntryManifest``'s own validator, not left to caller discipline),
+and ``MODEL_VERIFICATION`` (Studio v0.4's guided onboarding: a small,
+immutable record of exactly what was verified about a ``MODEL`` record --
+which profile content hash, against which real executed run, on which
+OSP/R/OpenTrials versions -- distinct from the ``MODEL`` record itself,
+which only declares what a profile *claims*).
 
 ``ValueType`` (``core.scientific_value``) and this module's
 ``EvidenceClass`` are deliberately distinct, not aliases: ``ValueType``
@@ -77,16 +82,18 @@ class EvidenceClass(StrEnum):
 
 
 class RegistryRecordKind(StrEnum):
-    """The five record kinds Registry v0.1 supports.
+    """The six record kinds Registry v0.1 supports.
 
-    Deliberately excludes two kinds named in earlier planning
-    ("capability profiles", "validation records"): a capability profile
-    is already the ``MODEL`` payload's own content (``ModelCapabilityProfile``
-    already bundles package/manifest/capabilities -- registering it
-    separately would fragment one correct unit into two), and validation
-    records are close kin to ``DATASET``/``EXPERIMENT`` but need their own
-    design pass against ``validation.study.ValidationResult`` -- left open
-    rather than folded in half-considered.
+    Deliberately excludes one kind named in earlier planning ("capability
+    profiles"): a capability profile is already the ``MODEL`` payload's
+    own content (``ModelCapabilityProfile`` already bundles
+    package/manifest/capabilities -- registering it separately would
+    fragment one correct unit into two). "Validation records", the other
+    kind named in that same earlier planning note, are close kin to
+    ``DATASET``/``EXPERIMENT`` but need their own design pass against
+    ``validation.study.ValidationResult`` -- still left open, distinct
+    from ``MODEL_VERIFICATION`` below (which verifies a *model's own
+    onboarding claims*, not a trial's scientific validity against real data).
     """
 
     MODEL = "MODEL"
@@ -94,6 +101,7 @@ class RegistryRecordKind(StrEnum):
     PARAMETER_EVIDENCE = "PARAMETER_EVIDENCE"
     DATASET = "DATASET"
     EXPERIMENT = "EXPERIMENT"
+    MODEL_VERIFICATION = "MODEL_VERIFICATION"
 
 
 class RegistrySource(BaseModel):
@@ -183,6 +191,31 @@ class ExperimentRecord(BaseModel):
         return self
 
 
+class ModelVerificationRecord(BaseModel):
+    """What was actually verified about one registered ``MODEL`` record.
+
+    A ``MODEL`` record's ``ModelCapabilityProfile`` only declares what a
+    profile *claims* to support; this record is the evidence that a real
+    execution actually confirmed those claims -- pinned to the exact
+    profile content hash verified (so a later, edited profile version
+    cannot silently inherit an old verification) and the exact executed
+    run that proved it, matching this project's "verify, don't just
+    trust a claim" discipline everywhere else (``registry.store.verify``,
+    ``sdk.physiology.verify_physiology_states``, ...).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model_id: str = Field(min_length=1)
+    profile_sha256: str = Field(pattern=SHA256_PATTERN)
+    pkml_sha256: str = Field(pattern=SHA256_PATTERN)
+    run_id: str = Field(min_length=1)
+    endpoint_types: tuple[str, ...] = Field(min_length=1)
+    opentrials_version: str = Field(min_length=1)
+    ospsuite_version: str = Field(min_length=1)
+    r_version: str = Field(min_length=1)
+
+
 class RegistryEntryManifest(BaseModel):
     """The one shared envelope every Registry record kind is wrapped in.
 
@@ -232,6 +265,16 @@ class RegistryEntryManifest(BaseModel):
                 "a simulated outcome may never be registered as MEASURED/CURATED/DERIVED "
                 "evidence of the real world."
             )
+        if (
+            self.kind is RegistryRecordKind.MODEL_VERIFICATION
+            and self.source.kind == "model_verification_run"
+            and self.evidence_class is not EvidenceClass.SIMULATED
+        ):
+            raise ValueError(
+                "A model-verification record sourced from a real onboarding execution "
+                "('model_verification_run') must be classified evidence_class=SIMULATED -- "
+                "it documents what a simulation showed, not measured real-world evidence."
+            )
         return self
 
 
@@ -241,6 +284,7 @@ PAYLOAD_TYPES: dict[RegistryRecordKind, type[BaseModel]] = {
     RegistryRecordKind.PARAMETER_EVIDENCE: ParameterEvidenceRecord,
     RegistryRecordKind.DATASET: ObservedDataset,
     RegistryRecordKind.EXPERIMENT: ExperimentRecord,
+    RegistryRecordKind.MODEL_VERIFICATION: ModelVerificationRecord,
 }
 """Each record kind's payload is either a type this project already had (``MODEL``/
 ``COMPOUND``/``DATASET`` wrap existing, correct, hand-verified schemas rather than
