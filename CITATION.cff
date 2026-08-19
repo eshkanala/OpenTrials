@@ -1,0 +1,29 @@
+cff-version: "1.2.0"
+message: "If you use OpenTrials in research, please cite the software using these metadata."
+title: "OpenTrials"
+type: software
+authors:
+  - name: "OpenTrials contributors"
+abstract: >-
+  OpenTrials is open-source infrastructure for reproducible mechanistic
+  virtual clinical-trial research. It provides model capability registration,
+  verified simulation execution, immutable provenance-bearing artifacts,
+  population and multi-arm trial workflows, PK analysis, evidence ingestion,
+  validation infrastructure, and researcher-facing reports around compatible
+  mechanistic simulation engines.
+version: "1.0.0-rc.1"
+date-released: "2026-08-18"
+license: "Apache-2.0"
+repository-code: "https://github.com/eshkanala/OpenTrials"
+url: "https://github.com/eshkanala/OpenTrials"
+keywords:
+  - "virtual clinical trials"
+  - "PBPK"
+  - "pharmacometrics"
+  - "pharmacokinetics"
+  - "systems pharmacology"
+  - "computational pharmacology"
+  - "mechanistic modeling"
+  - "scientific computing"
+  - "research software"
+  - "reproducibility"
