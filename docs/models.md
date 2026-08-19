@@ -15,26 +15,32 @@ uv run opentrials models list
 uv run opentrials models show osp.aciclovir.vergin-1995-iv
 ```
 
-As of this writing, exactly one model is registered: the pinned
-Aciclovir IV model bundled with `ospsuite` (`models/profiles/aciclovir_iv.py`).
-`opentrials models show` prints its full declared capability — compounds,
-administration routes, physiology targets, outputs, and what it
-explicitly does *not* support and why (e.g. repeated dosing — `ospsuite`'s
-R API has no dosing-protocol-authoring function at all, confirmed
-directly by enumerating every exported function).
+As of this writing, two models are registered: the pinned Aciclovir IV
+model bundled with `ospsuite` (`models/profiles/aciclovir_iv.py`) and a
+Midazolam oral tablet model converted from the official
+Open-Systems-Pharmacology snapshot (`models/profiles/midazolam_po.py`).
+`opentrials models show <model_id>` prints a model's full declared
+capability — compounds, administration routes, physiology targets,
+outputs, and what it explicitly does *not* support and why (e.g.
+repeated dosing — `ospsuite`'s R API has no dosing-protocol-authoring
+function at all, confirmed directly by enumerating every exported
+function).
 
-If `project.yaml` doesn't declare a `model_id`, OpenTrials resolves it
-automatically *only* when exactly one model is registered — with more
-than one, you must be explicit.
+`project.yaml` must declare a `model_id` explicitly: OpenTrials only
+resolves one automatically when exactly one model is registered, and
+that stopped being true once the second model was registered.
 
 ## Bringing in a new model: discover, then scaffold, then verify
 
 This is a deliberately three-step, human-in-the-loop process. Nothing
-here auto-registers a model — a second-model proof has remained blocked
-for months on an external tooling limitation (see
-[`docs/project-status.md`](project-status.md)), and the project has
-chosen to stay honestly blocked rather than fake a proof. That discipline
-matters more than moving fast here.
+here auto-registers a model — the registered Midazolam profile
+(`models/profiles/midazolam_po.py`) is a real example of following it
+end to end: a second-model proof stayed honestly blocked on an external
+tooling limitation for a real stretch of time (see
+[`docs/project-status.md`](project-status.md)) rather than being faked,
+and once the conversion cleared, every value in that profile still came
+from this same discover-then-verify process, not from assuming the
+conversion alone was enough.
 
 ### 1. Inspect
 

@@ -174,9 +174,7 @@ See [`docs/models.md`](docs/models.md) for model registration and verification.
 
 ## Reference implementation
 
-The current live-proven reference model is an aciclovir IV PBPK model available through the verified OSP environment. It provides the reference execution path for population generation, intervention verification, PK analysis, multi-arm trials, physiological perturbations, and large-population execution.
-
-The orchestration architecture itself is model-independent. A second live model remains part of the current generalization work; its status is documented in [`docs/project-status.md`](docs/project-status.md).
+Two live-proven models are registered through the verified OSP environment: an aciclovir IV PBPK model (renal clearance) and a Midazolam oral tablet PBPK model (hepatic/gut CYP3A4+UGT1A4 clearance). The orchestration architecture is model-independent -- registering the second model required no changes to generic execution code beyond fixing one hard-coded assumption the first model's IV-only path had never exposed. See [`docs/models.md`](docs/models.md) and [`docs/project-status.md`](docs/project-status.md) for detail.
 
 ## Reproducibility and provenance
 

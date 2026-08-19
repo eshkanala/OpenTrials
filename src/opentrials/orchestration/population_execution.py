@@ -310,10 +310,34 @@ def run_population_execution(
 def _intervention(
     profile: ModelCapabilityProfile, administration: AdministrationCapability, dose_mg: float
 ) -> Intervention:
+    """Synthesize the one dose a bare ``dose_mg`` float implies, from the profile alone.
+
+    v0.7-C found this hard-coded to aciclovir's own values (0 min
+    administration time, a 10 min infusion) regardless of what route or
+    administration the profile actually declared -- invisible until a
+    non-intravenous administration (Midazolam's oral tablet route) hit
+    ``Dose``'s own validator, which correctly rejects an infusion duration
+    on a non-IV route. Both values now come from the profile's own
+    declared ``fixed_administration_time_min``/``fixed_infusion_duration_min``
+    -- an infusion duration is only synthesized when the profile actually
+    declares one, matching ``trial_execution._validate_arm_intervention``'s
+    already-generic handling of the same two fields.
+    """
+
     def assumed(value: float, unit: str) -> ScientificValue:
         return ScientificValue(value=value, unit=unit, value_type=ValueType.ASSUMED)
 
     compound = next(c for c in profile.compounds if c.compound_id == administration.compound_id)
+    if administration.fixed_administration_time_min is None:
+        raise ValueError(
+            f"Administration {administration.target_id!r} does not declare a fixed "
+            "administration time; population execution cannot synthesize one."
+        )
+    infusion_duration = (
+        assumed(administration.fixed_infusion_duration_min, "min")
+        if administration.fixed_infusion_duration_min is not None
+        else None
+    )
     return Intervention(
         intervention_id=f"{compound.compound_id}-{administration.target_id}-population",
         compound=Compound(
@@ -327,8 +351,10 @@ def _intervention(
                 Dose(
                     amount=assumed(dose_mg, "mg"),
                     route=administration.route,
-                    administration_time=assumed(0, "min"),
-                    infusion_duration=assumed(10, "min"),
+                    administration_time=assumed(
+                        administration.fixed_administration_time_min, "min"
+                    ),
+                    infusion_duration=infusion_duration,
                 ),
             ),
         ),
@@ -356,8 +382,8 @@ def _execution_trial(
         ),
         arms=(
             TrialArm(
-                arm_id="iv",
-                name="IV",
+                arm_id=administration.route.value.lower(),
+                name=administration.route.value,
                 intervention=_intervention(profile, administration, dose_mg),
                 allocation=1.0,
             ),

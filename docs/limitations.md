@@ -29,20 +29,25 @@ rights-cleared human validation dataset) remains open:
 See [`docs/project-status.md`](project-status.md) for a summary of that
 search.
 
-## Only one model is registered
+## Only two models are registered, both from one engine
 
-`opentrials models list` shows exactly one registered model. A second,
-genuinely different model (different compound, different clearance
-mechanism, different administration route) was deliberately chosen to
-stress-test the model-generality architecture — the official,
-GPL-2.0-licensed Midazolam model — but sourcing it is blocked by an
-external tooling gap: `ospsuite`'s PK-Sim snapshot-conversion backend
-does not work on macOS (confirmed directly: it either refuses to run or
-segfaults). A reproducible Windows/Linux conversion procedure is ready
-(`scripts/convert_midazolam_snapshot.R`) but has not yet been run. Until
-it is, OpenTrials' claim to general model support rests on architecture
-proof (the execution pipeline no longer contains aciclovir-specific
-code) rather than a second live demonstration.
+`opentrials models list` shows two registered models: the aciclovir IV
+model (renal clearance) and a Midazolam oral tablet model (hepatic/gut
+CYP3A4+UGT1A4 clearance), deliberately chosen to differ from aciclovir on
+compound, clearance mechanism, and administration route. Registering the
+second model is real, live evidence that the execution pipeline
+generalizes, not just that it was refactored to look generic: it
+surfaced and fixed one real hard-coded assumption (an intravenous-only
+infusion duration silently applied to every dose) that the aciclovir-only
+path had never exposed. Both models currently come from the same engine
+(`ospsuite`/OSP) — no second simulation engine has ever been integrated,
+so the `SimulationEngine` interface's generality across *engines* (as
+opposed to models within one engine) remains architecture-only. The
+Midazolam snapshot's upstream conversion (`ospsuite`'s PK-Sim
+snapshot-conversion backend does not work on macOS) was resolved by
+running the conversion on Linux via a temporary GitHub Actions workflow
+rather than a manually-provisioned machine — see
+[`docs/project-status.md`](project-status.md) for that record.
 
 ## Repeated/multi-dose regimens are not supported
 

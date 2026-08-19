@@ -10,6 +10,7 @@ new profile needs to be added to become reachable from the SDK/CLI.
 from __future__ import annotations
 
 from opentrials.models.profiles.aciclovir_iv import ACICLOVIR_IV_CAPABILITY_PROFILE
+from opentrials.models.profiles.midazolam_po import MIDAZOLAM_PO_CAPABILITY_PROFILE
 from opentrials.models.registry import ModelCapabilityRegistry
 
 
@@ -17,4 +18,5 @@ def default_model_registry() -> ModelCapabilityRegistry:
     """Build a fresh registry containing every profile this project ships."""
     registry = ModelCapabilityRegistry()
     registry.register(ACICLOVIR_IV_CAPABILITY_PROFILE)
+    registry.register(MIDAZOLAM_PO_CAPABILITY_PROFILE)
     return registry
