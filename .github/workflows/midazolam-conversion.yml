@@ -1,0 +1,105 @@
+# TEMPORARY, one-off workflow for v0.7-C's Midazolam second-model proof.
+#
+# ospsuite-R's snapshot-conversion backend (runSimulationsFromSnapshot() /
+# loadProjectFromSnapshot()) does not work on macOS -- confirmed directly:
+# runSimulationsFromSnapshot() explicitly refuses to run on Darwin, and
+# loadProjectFromSnapshot() segfaults against the real downloaded Midazolam
+# snapshot on this project's macOS development machine. This workflow runs
+# the exact same conversion on a supported platform (Ubuntu, per OSP's own
+# published Linux support) instead of inventing a workaround.
+#
+# It does not touch any OpenTrials scientific or orchestration code -- it
+# only installs the external OSP/R/.NET toolchain and runs the already-
+# committed scripts/convert_midazolam_snapshot.R, which itself verifies
+# the pinned upstream snapshot hash before converting anything.
+#
+# Manually triggered (workflow_dispatch), not part of the regular CI
+# pipeline. Delete this file once v0.7-C's Midazolam.pkml has been
+# produced, carried back, and registered -- it has no ongoing purpose
+# after that.
+
+name: Midazolam snapshot conversion (temporary, v0.7-C)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  convert:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add the Microsoft package repository
+        run: |
+          wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update
+
+      # Exact package set per rSharp's own published Ubuntu instructions
+      # (https://github.com/Open-Systems-Pharmacology/rSharp#ubuntu):
+      # dotnet-runtime-10.0 plus the libcurl/libssl/libxml2/font/graphics
+      # libraries ospsuite's R-universe binary build links against.
+      - name: Install .NET runtime and rSharp/ospsuite system dependencies
+        run: |
+          sudo apt-get install -y \
+            dotnet-runtime-10.0 \
+            libcurl4-openssl-dev libssl-dev libxml2-dev \
+            libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
+
+      # ospsuite's own Linux install notes require LC_ALL set to a real
+      # UTF-8 locale; GitHub's ubuntu-22.04 image does not enable
+      # en_US.UTF-8 by default.
+      - name: Ensure en_US.UTF-8 locale is available
+        run: |
+          sudo locale-gen en_US.UTF-8
+          sudo update-locale LANG=en_US.UTF-8
+
+      - name: Install R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.4"
+
+      # Installed from the official OSP R-universe binary repo, exactly as
+      # OSPSuite-R's own README documents -- not pinned to this project's
+      # macOS-verified 12.4.4, since R-universe serves current releases.
+      # This job only converts a snapshot to .pkml; it does not execute a
+      # scientific simulation, so a newer ospsuite/.NET pairing here does
+      # not affect the reproducibility of anything this project has
+      # already verified on macOS.
+      - name: Install rSharp and ospsuite from the OSP R-universe
+        run: |
+          Rscript -e 'install.packages("digest", repos = "https://cloud.r-project.org")'
+          Rscript -e 'install.packages("rSharp", repos = c(OSP = "https://open-systems-pharmacology.r-universe.dev", getOption("repos")))'
+          Rscript -e 'install.packages("ospsuite", repos = c(OSP = "https://open-systems-pharmacology.r-universe.dev", getOption("repos")))'
+
+      - name: Report installed toolchain versions
+        run: |
+          dotnet --list-runtimes
+          Rscript -e 'cat("R:", R.version.string, "\n"); cat("ospsuite:", as.character(packageVersion("ospsuite")), "\n"); cat("rSharp:", as.character(packageVersion("rSharp")), "\n")'
+
+      - name: Run the Midazolam snapshot conversion
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          LIB_PATH=$(Rscript -e 'cat(.libPaths()[1])')
+          export LD_LIBRARY_PATH="${LIB_PATH}/ospsuite/lib/:${LD_LIBRARY_PATH}"
+          echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+          Rscript scripts/convert_midazolam_snapshot.R ./midazolam-conversion-output 2>&1 | tee conversion.log
+
+      # Uploaded on success or failure -- a failed run's log is exactly
+      # what "preserve the exact logs and stop before inventing a
+      # workaround" requires to diagnose honestly rather than guess.
+      - name: Upload conversion output and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: midazolam-conversion-output
+          path: |
+            midazolam-conversion-output/**
+            conversion.log
+          if-no-files-found: warn
+          retention-days: 14
