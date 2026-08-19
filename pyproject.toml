@@ -11,6 +11,18 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "OpenTrials contributors" }]
+keywords = [
+  "virtual clinical trials",
+  "pbpk",
+  "pharmacometrics",
+  "pharmacokinetics",
+  "systems pharmacology",
+  "computational pharmacology",
+  "mechanistic modeling",
+  "scientific computing",
+  "research software",
+  "reproducibility",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
@@ -25,6 +37,12 @@ dependencies = [
   "pyarrow>=18,<24",
   "pyyaml>=6.0,<7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/eshkanala/OpenTrials"
+Repository = "https://github.com/eshkanala/OpenTrials"
+Documentation = "https://github.com/eshkanala/OpenTrials/tree/main/docs"
+Issues = "https://github.com/eshkanala/OpenTrials/issues"
 
 [project.scripts]
 opentrials = "opentrials.cli.main:main"
